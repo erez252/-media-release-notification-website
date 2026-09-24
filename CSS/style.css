@@ -703,7 +703,21 @@ input {
 
   .search-bar {
     order: 3;
+    flex-basis: 100%;
     width: 100%;
+    min-width: 0;
+  }
+
+  .search-text {
+    font-size: 1rem;
+    padding-top: 0.65rem;
+    padding-bottom: 0.65rem;
+  }
+
+  #search-btn {
+    flex-shrink: 0;
+    padding-left: 1rem;
+    padding-right: 1rem;
   }
 
   .brand { flex: 1; }
