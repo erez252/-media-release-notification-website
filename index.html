@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Watchlist</title>
+  <link rel="stylesheet" href="./CSS/style.css" />
+</head>
+<body>
+
+  <!-- ── Password Overlay ─────────────────────────────────────────── -->
+  <div id="password-overlay" class="overlay" role="dialog" aria-modal="true" aria-label="Authentication">
+    <div class="overlay-card">
+      <div class="overlay-logo">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" fill="#e50914"/>
+        </svg>
+      </div>
+      <h1 class="overlay-title">Watchlist</h1>
+      <p class="overlay-subtitle">Enter your password to continue</p>
+      <div class="overlay-form">
+        <div class="input-group">
+          <input
+            type="password"
+            id="access-password"
+            class="text-input"
+            placeholder="Password"
+            autocomplete="current-password"
+            aria-label="Password"
+          />
+        </div>
+        <p id="auth-error" class="error-msg hidden" role="alert">Incorrect password. Please try again.</p>
+        <button id="submit-password" class="btn btn-primary btn-full">
+          <span class="btn-text">Unlock Watchlist</span>
+          <span class="btn-spinner spinner hidden" aria-hidden="true"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Main App (hidden until auth) ───────────────────────────── -->
+  <div id="app" class="app hidden">
+
+    <!-- Top Bar -->
+    <header class="top-bar">
+      <div class="top-bar-inner">
+        <div class="brand">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" fill="#e50914"/>
+          </svg>
+          <span class="brand-name">Watchlist</span>
+        </div>
+
+        <!-- TMDB Search -->
+        <div class="search-bar" role="search">
+          <div class="search-input-wrap">
+            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <input
+              type="text"
+              id="search-input"
+              class="text-input search-text"
+              placeholder="Search movies & TV shows…"
+              aria-label="Search TMDB"
+              autocomplete="off"
+            />
+          </div>
+          <button id="search-btn" class="btn btn-secondary">
+            <span class="btn-text">Search</span>
+            <span class="btn-spinner spinner hidden" aria-hidden="true"></span>
+          </button>
+        </div>
+
+        <button id="logout-btn" class="btn btn-ghost" title="Lock watchlist" aria-label="Lock watchlist">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M17 11V7a5 5 0 00-10 0v4M5 11h14a2 2 0 012 2v7a2 2 0 01-2 2H5a2 2 0 01-2-2v-7a2 2 0 012-2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="main-content">
+
+      <!-- Search Results Panel -->
+      <section id="search-results-section" class="search-results-section hidden" aria-label="Search results">
+        <div class="section-header">
+          <h2 class="section-title">Search Results</h2>
+          <button id="close-search-btn" class="btn btn-ghost btn-sm" aria-label="Close search results">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <p id="search-error" class="error-msg hidden" role="alert"></p>
+
+        <div id="movies-results-wrap" class="results-group hidden">
+          <h3 class="results-group-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="2" y="4" width="20" height="16" rx="2" stroke="currentColor" stroke-width="2"/>
+              <path d="M8 8l8 4-8 4V8z" fill="currentColor"/>
+            </svg>
+            Movies
+          </h3>
+          <div id="movies-results" class="results-row"></div>
+        </div>
+
+        <div id="tv-results-wrap" class="results-group hidden">
+          <h3 class="results-group-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="2" y="7" width="20" height="15" rx="2" stroke="currentColor" stroke-width="2"/>
+              <path d="M7 7V5a2 2 0 014 0v2M17 7V5a2 2 0 00-4 0v2" stroke="currentColor" stroke-width="2"/>
+            </svg>
+            TV Shows
+          </h3>
+          <div id="tv-results" class="results-row"></div>
+        </div>
+
+        <p id="no-search-results" class="empty-state hidden">No results found. Try a different search term.</p>
+      </section>
+
+      <!-- Watchlist Section -->
+      <section class="watchlist-section" aria-label="Your watchlist">
+        <div class="watchlist-header">
+          <h2 class="section-title">
+            My Watchlist
+            <span id="watchlist-count" class="count-badge">0</span>
+          </h2>
+          <!-- Filter -->
+          <div class="filter-wrap">
+            <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <input
+              type="text"
+              id="filter-input"
+              class="text-input filter-text"
+              placeholder="Filter watchlist…"
+              aria-label="Filter watchlist by title"
+            />
+          </div>
+        </div>
+
+        <p id="watchlist-error" class="error-msg hidden" role="alert"></p>
+
+        <div id="watchlist-loading" class="loading-state hidden">
+          <div class="spinner spinner-lg" aria-hidden="true"></div>
+          <p>Loading your watchlist…</p>
+        </div>
+
+        <div id="watchlist-grid" class="watchlist-grid" role="list"></div>
+
+        <p id="watchlist-empty" class="empty-state hidden">Your watchlist is empty. Search for something to add!</p>
+        <p id="filter-empty" class="empty-state hidden">No titles match your filter.</p>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="./JS/script.js"></script>
+</body>
+</html>
