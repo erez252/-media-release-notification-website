@@ -334,6 +334,37 @@ input {
   padding-left: 2.1rem;
 }
 
+/* Search type pill toggle */
+.search-type-pills {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.pill {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.3rem 0.75rem;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  white-space: nowrap;
+}
+
+.pill:hover {
+  background: rgba(255,255,255,0.12);
+  color: var(--text-primary);
+}
+
+.pill.active {
+  background: var(--accent-dim);
+  border-color: rgba(229, 9, 20, 0.4);
+  color: var(--accent);
+}
+
 /* ─────────────────────────────────────────────────────────────
    Main content
 ───────────────────────────────────────────────────────────── */
@@ -506,22 +537,62 @@ input {
 ───────────────────────────────────────────────────────────── */
 .watchlist-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   margin-bottom: 1rem;
+}
+
+.watchlist-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.watchlist-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .filter-wrap {
   position: relative;
-  width: 220px;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 160px;
 }
 
 .filter-text {
   padding-left: 2rem;
   font-size: 0.85rem;
+}
+
+.filter-select {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  padding: 0.55rem 0.75rem;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+  font-family: inherit;
+  flex-shrink: 0;
+}
+
+.filter-select:focus {
+  border-color: var(--border-focus);
+  background: rgba(255,255,255,0.09);
+}
+
+.filter-select option {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+/* Spinning refresh icon animation */
+.refresh-icon.spinning {
+  animation: spin 0.7s linear infinite;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -647,6 +718,11 @@ input {
   text-overflow: ellipsis;
 }
 
+.watch-card-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
 .watch-card-status-dot {
   display: inline-block;
   width: 6px;
@@ -706,6 +782,17 @@ input {
     flex-basis: 100%;
     width: 100%;
     min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .search-type-pills {
+    order: 2;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .search-input-wrap {
+    flex: 1;
   }
 
   .search-text {
@@ -735,12 +822,14 @@ input {
 
   .result-card { max-width: 100%; }
 
-  .watchlist-header {
+  .watchlist-controls {
     flex-direction: column;
-    align-items: flex-start;
   }
 
-  .filter-wrap { width: 100%; }
+  .filter-wrap,
+  .filter-select {
+    width: 100%;
+  }
 
   .overlay-card {
     padding: 2rem 1.25rem;

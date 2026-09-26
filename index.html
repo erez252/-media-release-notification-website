@@ -53,6 +53,11 @@
 
         <!-- TMDB Search -->
         <div class="search-bar" role="search">
+          <div class="search-type-pills" role="group" aria-label="Search type">
+            <button class="pill active" data-type="all">All</button>
+            <button class="pill" data-type="movie">Movies</button>
+            <button class="pill" data-type="tv">TV</button>
+          </div>
           <div class="search-input-wrap">
             <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -122,22 +127,49 @@
       <!-- Watchlist Section -->
       <section class="watchlist-section" aria-label="Your watchlist">
         <div class="watchlist-header">
-          <h2 class="section-title">
-            My Watchlist
-            <span id="watchlist-count" class="count-badge">0</span>
-          </h2>
-          <!-- Filter -->
-          <div class="filter-wrap">
-            <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            </svg>
-            <input
-              type="text"
-              id="filter-input"
-              class="text-input filter-text"
-              placeholder="Filter watchlist…"
-              aria-label="Filter watchlist by title"
-            />
+          <div class="watchlist-title-row">
+            <h2 class="section-title">
+              My Watchlist
+              <span id="watchlist-count" class="count-badge">0</span>
+            </h2>
+            <button id="refresh-btn" class="btn btn-ghost btn-sm" title="Refresh watchlist" aria-label="Refresh watchlist">
+              <svg class="refresh-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="btn-spinner spinner hidden" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div class="watchlist-controls">
+            <!-- Text filter -->
+            <div class="filter-wrap">
+              <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+              <input
+                type="text"
+                id="filter-input"
+                class="text-input filter-text"
+                placeholder="Filter by title…"
+                aria-label="Filter watchlist by title"
+              />
+            </div>
+            <!-- Type filter -->
+            <select id="type-filter" class="filter-select" aria-label="Filter by type">
+              <option value="all">All Types</option>
+              <option value="movie">Movies</option>
+              <option value="tv">TV Shows</option>
+            </select>
+            <!-- Genre filter -->
+            <select id="genre-filter" class="filter-select" aria-label="Filter by genre">
+              <option value="all">All Genres</option>
+            </select>
+            <!-- Sort -->
+            <select id="sort-select" class="filter-select" aria-label="Sort watchlist">
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+              <option value="release-desc">Release Date ↓</option>
+              <option value="release-asc">Release Date ↑</option>
+            </select>
           </div>
         </div>
 

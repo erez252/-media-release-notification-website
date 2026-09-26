@@ -41,6 +41,24 @@ const watchlistEmpty  = $('watchlist-empty');
 const filterEmpty     = $('filter-empty');
 
 const logoutBtn       = $('logout-btn');
+const refreshBtn      = $('refresh-btn');
+const typeFilter      = $('type-filter');
+const genreFilter     = $('genre-filter');
+const sortSelect      = $('sort-select');
+
+// Search type filter (All / Movies / TV)
+let searchTypeFilter = 'all'; // 'all' | 'movie' | 'tv'
+let lastSearchResults = null; // { movies: [], tvShows: [] } — cached from last API call
+
+document.querySelectorAll('.search-type-pills .pill').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.search-type-pills .pill').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    searchTypeFilter = btn.dataset.type;
+    // Re-render cached results immediately — no new API call needed
+    if (lastSearchResults) renderSearchResults(lastSearchResults.movies, lastSearchResults.tvShows);
+  });
+});
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -147,7 +165,8 @@ async function handleLogin() {
 
   hide(overlay);
   show(app);
-  renderWatchlist(watchlistData);
+  populateGenreFilter();
+  applyFiltersAndSort();
 }
 
 function handleLogout() {
@@ -159,6 +178,17 @@ function handleLogout() {
   show(overlay);
   clearSearchUI();
   watchlistGrid.innerHTML = '';
+  // Reset filter/sort controls
+  filterInput.value  = '';
+  typeFilter.value   = 'all';
+  genreFilter.innerHTML = '<option value="all">All Genres</option>';
+  sortSelect.value   = 'newest';
+  // Reset search type pills
+  searchTypeFilter = 'all';
+  lastSearchResults = null;
+  document.querySelectorAll('.search-type-pills .pill').forEach((b, i) => {
+    b.classList.toggle('active', i === 0);
+  });
 }
 
 // Allow Enter key on password field
@@ -252,6 +282,24 @@ function buildWatchCard(item) {
   title.textContent = item.title;
   body.appendChild(title);
 
+  // Year + runtime on one line: "2026 · 2h 25m"
+  const dateStr = item.media_type === 'movie' ? item.release_date : item.first_air_date;
+  const yearStr = dateStr ? dateStr.slice(0, 4) : null;
+  const hasRuntime = typeof item.runtime === 'number' && item.runtime > 0;
+  if (yearStr || hasRuntime) {
+    const meta = document.createElement('div');
+    meta.className = 'watch-card-meta';
+    const parts = [];
+    if (yearStr) parts.push(yearStr);
+    if (hasRuntime) {
+      const h = Math.floor(item.runtime / 60);
+      const m = item.runtime % 60;
+      parts.push(h > 0 ? `${h}h ${m}m` : `${m}m`);
+    }
+    meta.textContent = parts.join(' · ');
+    body.appendChild(meta);
+  }
+
   if (item.status) {
     const statusWrap = document.createElement('div');
     statusWrap.className = `watch-card-status ${statusClass(item.status)}`;
@@ -328,39 +376,89 @@ async function handleRemove(movieId, movieType, cardEl, btn, errorEl) {
   cardEl.style.opacity    = '0';
   cardEl.style.transform  = 'scale(0.93)';
   setTimeout(() => {
-    cardEl.remove();
-    // Update count
     watchlistData = watchlistData.filter(
       i => !(String(i.id) === String(movieId) && i.media_type === movieType)
     );
-    watchlistCount.textContent = watchlistGrid.children.length;
-    if (watchlistGrid.children.length === 0) show(watchlistEmpty);
+    populateGenreFilter();
+    applyFiltersAndSort();
   }, 250);
 }
 
 // ─────────────────────────────────────────────────────────────
-// Client-side watchlist filter
+// Client-side filtering, sorting, genre population
 // ─────────────────────────────────────────────────────────────
 
-filterInput.addEventListener('input', () => {
-  const q = filterInput.value.trim().toLowerCase();
-  hide(filterEmpty);
-  hide(watchlistEmpty);
+/** Populate the genre dropdown from the current watchlistData */
+function populateGenreFilter() {
+  const current = genreFilter.value;
+  // Collect all unique genre names
+  const genres = new Set();
+  watchlistData.forEach(item => {
+    (item.genres || []).forEach(g => genres.add(g.name));
+  });
+  // Rebuild options, keep "All Genres" first
+  genreFilter.innerHTML = '<option value="all">All Genres</option>';
+  [...genres].sort().forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    genreFilter.appendChild(opt);
+  });
+  // Restore previous selection if still valid
+  if ([...genreFilter.options].some(o => o.value === current)) {
+    genreFilter.value = current;
+  }
+}
 
-  let visibleCount = 0;
-  watchlistGrid.querySelectorAll('.watch-card').forEach(card => {
-    const title = card.querySelector('.watch-card-title')?.textContent.toLowerCase() ?? '';
-    const match = !q || title.includes(q);
-    card.style.display = match ? '' : 'none';
-    if (match) visibleCount++;
+/** Apply all active filters + sort and re-render */
+function applyFiltersAndSort() {
+  const q     = filterInput.value.trim().toLowerCase();
+  const type  = typeFilter.value;       // 'all' | 'movie' | 'tv'
+  const genre = genreFilter.value;      // 'all' | genre name string
+  const sort  = sortSelect.value;       // 'newest' | 'oldest'
+
+  // Helper: get a comparable release date string for an item ('' if missing)
+  const getDate = item => (item.media_type === 'movie' ? item.release_date : item.first_air_date) ?? '';
+
+  // Start from master data, apply sort
+  let items = [...watchlistData];
+  if (sort === 'newest') {
+    items.reverse();
+  } else if (sort === 'release-desc') {
+    items.sort((a, b) => {
+      const da = getDate(a), db = getDate(b);
+      if (!da && !db) return 0;
+      if (!da) return 1;   // missing dates go to the bottom
+      if (!db) return -1;
+      return db.localeCompare(da);
+    });
+  } else if (sort === 'release-asc') {
+    items.sort((a, b) => {
+      const da = getDate(a), db = getDate(b);
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return da.localeCompare(db);
+    });
+  }
+  // 'oldest' keeps the original API order (no change needed)
+
+  // Apply filters
+  items = items.filter(item => {
+    if (type !== 'all' && item.media_type !== type) return false;
+    if (genre !== 'all' && !(item.genres || []).some(g => g.name === genre)) return false;
+    if (q && !item.title.toLowerCase().includes(q)) return false;
+    return true;
   });
 
-  if (watchlistGrid.children.length > 0 && visibleCount === 0 && q) {
-    show(filterEmpty);
-  } else if (watchlistGrid.children.length === 0) {
-    show(watchlistEmpty);
-  }
-});
+  renderWatchlist(items);
+}
+
+// Wire up all filter/sort controls
+filterInput.addEventListener('input', applyFiltersAndSort);
+typeFilter.addEventListener('change', applyFiltersAndSort);
+genreFilter.addEventListener('change', applyFiltersAndSort);
+sortSelect.addEventListener('change', applyFiltersAndSort);
 
 // ─────────────────────────────────────────────────────────────
 // TMDB Search
@@ -369,6 +467,9 @@ filterInput.addEventListener('input', () => {
 async function handleSearch() {
   const query = searchInput.value.trim();
   if (!query) return;
+
+  // Scroll to top so user sees results immediately
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 
   clearSearchUI();
   clearError(searchError);
@@ -400,16 +501,34 @@ async function handleSearch() {
     return;
   }
 
-  if (movies.length) {
-    moviesResults.innerHTML = '';
+  lastSearchResults = { movies, tvShows };
+  renderSearchResults(movies, tvShows);
+}
+
+/** Render search results respecting the active searchTypeFilter. Called after fetch and on pill change. */
+function renderSearchResults(movies, tvShows) {
+  // Clear previous results but keep the panel visible
+  hide(noSearchResults);
+  hide(moviesWrap);
+  hide(tvWrap);
+  moviesResults.innerHTML = '';
+  tvResults.innerHTML     = '';
+
+  const showMovies = searchTypeFilter === 'all' || searchTypeFilter === 'movie';
+  const showTV     = searchTypeFilter === 'all' || searchTypeFilter === 'tv';
+
+  if (movies.length && showMovies) {
     movies.forEach(m => moviesResults.appendChild(buildResultCard(m)));
     show(moviesWrap);
   }
 
-  if (tvShows.length) {
-    tvResults.innerHTML = '';
+  if (tvShows.length && showTV) {
     tvShows.forEach(t => tvResults.appendChild(buildResultCard(t)));
     show(tvWrap);
+  }
+
+  if ((!movies.length || !showMovies) && (!tvShows.length || !showTV)) {
+    show(noSearchResults);
   }
 }
 
@@ -538,12 +657,8 @@ async function refreshWatchlist() {
   }
 
   watchlistData = Array.isArray(data) ? data : [];
-  // Re-apply any active filter after refresh
-  const q = filterInput.value.trim();
-  renderWatchlist(watchlistData);
-  if (q) {
-    filterInput.dispatchEvent(new Event('input'));
-  }
+  populateGenreFilter();
+  applyFiltersAndSort();
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -559,4 +674,28 @@ searchInput.addEventListener('keydown', e => {
 closeSearchBtn.addEventListener('click', () => {
   clearSearchUI();
   searchInput.value = '';
+});
+
+// ─────────────────────────────────────────────────────────────
+// Manual refresh button
+// ─────────────────────────────────────────────────────────────
+
+refreshBtn.addEventListener('click', async () => {
+  setBtnLoading(refreshBtn, true);
+  // Show the spinning icon during fetch
+  refreshBtn.querySelector('.refresh-icon')?.classList.add('spinning');
+
+  const { ok, data } = await apiPost('/get-data', { password: currentPassword });
+
+  setBtnLoading(refreshBtn, false);
+  refreshBtn.querySelector('.refresh-icon')?.classList.remove('spinning');
+
+  if (!ok) {
+    showError(watchlistError, 'Could not refresh watchlist. Please try again.');
+    return;
+  }
+
+  watchlistData = Array.isArray(data) ? data : [];
+  populateGenreFilter();
+  applyFiltersAndSort();
 });
