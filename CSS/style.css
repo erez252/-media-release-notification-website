@@ -665,6 +665,7 @@ input {
 
 .type-badge-movie { background: var(--movie-badge); color: #90bfff; }
 .type-badge-tv    { background: var(--tv-badge);    color: #90ffb8; }
+.type-badge-game  { background: #5a2d82;            color: #d4aaff; }
 
 .digital-badge,
 .upcoming-badge {

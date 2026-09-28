@@ -3,8 +3,9 @@
    Vanilla JS — no frameworks
 ───────────────────────────────────────────────────────────── */
 
-const API = 'https://media-release-notification.vercel.app/api';
-const POSTER_BASE = 'https://image.tmdb.org/t/p/w342';
+const API          = 'https://media-release-notification.vercel.app/api';
+const POSTER_BASE  = 'https://image.tmdb.org/t/p/w342';
+const IGDB_BASE    = 'https://images.igdb.com/igdb/image/upload/t_cover_big/';
 
 // Global session state — password is kept only in memory
 let currentPassword = '';
@@ -28,8 +29,10 @@ const closeSearchBtn  = $('close-search-btn');
 const searchError     = $('search-error');
 const moviesWrap      = $('movies-results-wrap');
 const tvWrap          = $('tv-results-wrap');
+const gamesWrap       = $('games-results-wrap');
 const moviesResults   = $('movies-results');
 const tvResults       = $('tv-results');
+const gamesResults    = $('games-results');
 const noSearchResults = $('no-search-results');
 
 const filterInput     = $('filter-input');
@@ -56,7 +59,7 @@ document.querySelectorAll('.search-type-pills .pill').forEach(btn => {
     btn.classList.add('active');
     searchTypeFilter = btn.dataset.type;
     // Re-render cached results immediately — no new API call needed
-    if (lastSearchResults) renderSearchResults(lastSearchResults.movies, lastSearchResults.tvShows);
+    if (lastSearchResults) renderSearchResults(lastSearchResults.movies, lastSearchResults.tvShows, lastSearchResults.games);
   });
 });
 
@@ -88,11 +91,13 @@ function clearError(el) {
   hide(el);
 }
 
-/** Create a poster <img> or placeholder */
-function makePoster(posterPath, title, classes) {
+/** Create a poster <img> or placeholder. Pass mediaType='game' for IGDB URL. */
+function makePoster(posterPath, title, classes, mediaType) {
   if (posterPath) {
     const img = document.createElement('img');
-    img.src   = `${POSTER_BASE}${posterPath}`;
+    img.src   = mediaType === 'game'
+      ? `${IGDB_BASE}${posterPath}.jpg`
+      : `${POSTER_BASE}${posterPath}`;
     img.alt   = title;
     img.className = classes.img;
     img.loading = 'lazy';
@@ -241,23 +246,30 @@ function buildWatchCard(item) {
   const poster = makePoster(item.poster_path, item.title, {
     img:         'watch-card-poster',
     placeholder: 'watch-card-poster-placeholder',
-  });
+  }, item.media_type);
   posterWrap.appendChild(poster);
 
   // Type badge
   const badge = document.createElement('span');
-  badge.className  = `type-badge ${isMovie ? 'type-badge-movie' : 'type-badge-tv'}`;
-  badge.textContent = isMovie ? 'Movie' : 'TV';
+  const badgeCls  = item.media_type === 'movie' ? 'type-badge-movie'
+                  : item.media_type === 'game'  ? 'type-badge-game'
+                  : 'type-badge-tv';
+  const badgeText = item.media_type === 'movie' ? 'Movie'
+                  : item.media_type === 'game'  ? 'Game'
+                  : 'TV';
+  badge.className  = `type-badge ${badgeCls}`;
+  badge.textContent = badgeText;
   posterWrap.appendChild(badge);
 
-  // Right-side badge: Digital / Upcoming (only one shown, mutually exclusive)
+  // Right-side badge: Digital (movies only) / Upcoming
   const rightBadge = (() => {
     if (item.media_type === 'movie') {
       if (item.digital === true) return { label: 'Digital', cls: 'digital-badge' };
       if (item.release_date && new Date(item.release_date) > new Date()) return { label: 'Upcoming', cls: 'upcoming-badge' };
+    } else if (item.media_type === 'game') {
+      if (item.release_date && new Date(item.release_date) > new Date()) return { label: 'Upcoming', cls: 'upcoming-badge' };
     } else {
       // TV show
-      if (item.digital === true) return { label: 'Digital', cls: 'digital-badge' };
       const upcomingStatuses = ['planned', 'in production', 'pilot'];
       if (item.status && upcomingStatuses.includes(item.status.toLowerCase())) return { label: 'Upcoming', cls: 'upcoming-badge' };
     }
@@ -283,7 +295,9 @@ function buildWatchCard(item) {
   body.appendChild(title);
 
   // Year + runtime on one line: "2026 · 2h 25m"
-  const dateStr = item.media_type === 'movie' ? item.release_date : item.first_air_date;
+  const dateStr = (item.media_type === 'movie' || item.media_type === 'game')
+    ? item.release_date
+    : item.first_air_date;
   const yearStr = dateStr ? dateStr.slice(0, 4) : null;
   const hasRuntime = typeof item.runtime === 'number' && item.runtime > 0;
   if (yearStr || hasRuntime) {
@@ -388,14 +402,19 @@ async function handleRemove(movieId, movieType, cardEl, btn, errorEl) {
 // Client-side filtering, sorting, genre population
 // ─────────────────────────────────────────────────────────────
 
-/** Populate the genre dropdown from the current watchlistData */
+/** Populate the genre dropdown from watchlistData, filtered by the active type selection */
 function populateGenreFilter() {
-  const current = genreFilter.value;
-  // Collect all unique genre names
+  const current     = genreFilter.value;
+  const activeType  = typeFilter.value; // 'all' | 'movie' | 'tv' | 'game'
+
+  // Only collect genres from items that match the active type filter
   const genres = new Set();
   watchlistData.forEach(item => {
+    if (activeType === 'movie-tv' && item.media_type === 'game') return;
+    if (activeType !== 'all' && activeType !== 'movie-tv' && item.media_type !== activeType) return;
     (item.genres || []).forEach(g => genres.add(g.name));
   });
+
   // Rebuild options, keep "All Genres" first
   genreFilter.innerHTML = '<option value="all">All Genres</option>';
   [...genres].sort().forEach(name => {
@@ -404,9 +423,12 @@ function populateGenreFilter() {
     opt.textContent = name;
     genreFilter.appendChild(opt);
   });
-  // Restore previous selection if still valid
+
+  // Restore previous selection if still valid, otherwise reset to 'all'
   if ([...genreFilter.options].some(o => o.value === current)) {
     genreFilter.value = current;
+  } else {
+    genreFilter.value = 'all';
   }
 }
 
@@ -418,7 +440,10 @@ function applyFiltersAndSort() {
   const sort  = sortSelect.value;       // 'newest' | 'oldest'
 
   // Helper: get a comparable release date string for an item ('' if missing)
-  const getDate = item => (item.media_type === 'movie' ? item.release_date : item.first_air_date) ?? '';
+  const getDate = item =>
+    (item.media_type === 'movie' || item.media_type === 'game')
+      ? (item.release_date ?? '')
+      : (item.first_air_date ?? '');
 
   // Start from master data, apply sort
   let items = [...watchlistData];
@@ -445,7 +470,8 @@ function applyFiltersAndSort() {
 
   // Apply filters
   items = items.filter(item => {
-    if (type !== 'all' && item.media_type !== type) return false;
+    if (type === 'movie-tv' && item.media_type === 'game') return false;
+    if (type !== 'all' && type !== 'movie-tv' && item.media_type !== type) return false;
     if (genre !== 'all' && !(item.genres || []).some(g => g.name === genre)) return false;
     if (q && !item.title.toLowerCase().includes(q)) return false;
     return true;
@@ -456,7 +482,10 @@ function applyFiltersAndSort() {
 
 // Wire up all filter/sort controls
 filterInput.addEventListener('input', applyFiltersAndSort);
-typeFilter.addEventListener('change', applyFiltersAndSort);
+typeFilter.addEventListener('change', () => {
+  populateGenreFilter(); // refresh genre list to match selected type
+  applyFiltersAndSort();
+});
 genreFilter.addEventListener('change', applyFiltersAndSort);
 sortSelect.addEventListener('change', applyFiltersAndSort);
 
@@ -493,29 +522,33 @@ async function handleSearch() {
     return;
   }
 
-  const movies = data?.movie_results ?? [];
-  const tvShows = data?.tv_results  ?? [];
+  const movies  = data?.movie_results ?? [];
+  const tvShows = data?.tv_results    ?? [];
+  const games   = data?.game_results  ?? [];
 
-  if (!movies.length && !tvShows.length) {
+  if (!movies.length && !tvShows.length && !games.length) {
     show(noSearchResults);
     return;
   }
 
-  lastSearchResults = { movies, tvShows };
-  renderSearchResults(movies, tvShows);
+  lastSearchResults = { movies, tvShows, games };
+  renderSearchResults(movies, tvShows, games);
 }
 
 /** Render search results respecting the active searchTypeFilter. Called after fetch and on pill change. */
-function renderSearchResults(movies, tvShows) {
+function renderSearchResults(movies, tvShows, games = []) {
   // Clear previous results but keep the panel visible
   hide(noSearchResults);
   hide(moviesWrap);
   hide(tvWrap);
+  hide(gamesWrap);
   moviesResults.innerHTML = '';
   tvResults.innerHTML     = '';
+  gamesResults.innerHTML  = '';
 
   const showMovies = searchTypeFilter === 'all' || searchTypeFilter === 'movie';
   const showTV     = searchTypeFilter === 'all' || searchTypeFilter === 'tv';
+  const showGames  = searchTypeFilter === 'all' || searchTypeFilter === 'game';
 
   if (movies.length && showMovies) {
     movies.forEach(m => moviesResults.appendChild(buildResultCard(m)));
@@ -527,9 +560,16 @@ function renderSearchResults(movies, tvShows) {
     show(tvWrap);
   }
 
-  if ((!movies.length || !showMovies) && (!tvShows.length || !showTV)) {
-    show(noSearchResults);
+  if (games.length && showGames) {
+    games.forEach(g => gamesResults.appendChild(buildResultCard(g)));
+    show(gamesWrap);
   }
+
+  const nothingVisible =
+    (!movies.length  || !showMovies) &&
+    (!tvShows.length || !showTV)     &&
+    (!games.length   || !showGames);
+  if (nothingVisible) show(noSearchResults);
 }
 
 function clearSearchUI() {
@@ -537,25 +577,31 @@ function clearSearchUI() {
   hide(noSearchResults);
   hide(moviesWrap);
   hide(tvWrap);
+  hide(gamesWrap);
   moviesResults.innerHTML = '';
   tvResults.innerHTML     = '';
+  gamesResults.innerHTML  = '';
   clearError(searchError);
 }
 
 function buildResultCard(item) {
   const isMovie = item.media_type === 'movie';
-  const title   = isMovie ? item.title : item.name;
-  const date    = isMovie ? item.release_date : item.first_air_date;
+  const isGame  = item.media_type === 'game';
+  // games and movies use `title`; TV shows use `name`
+  const title   = (isMovie || isGame) ? item.title : item.name;
+  // games and movies use `release_date`; TV shows use `first_air_date`
+  const date    = (isMovie || isGame) ? item.release_date : item.first_air_date;
   const year    = date ? date.slice(0, 4) : '—';
   const vote    = item.vote_average ? item.vote_average.toFixed(1) : null;
 
   const card = document.createElement('div');
   card.className = 'result-card';
 
+  // Pass mediaType so IGDB URL is used for games
   const poster = makePoster(item.poster_path, title, {
     img:         'result-poster',
     placeholder: 'result-poster-placeholder',
-  });
+  }, item.media_type);
   card.appendChild(poster);
 
   const info = document.createElement('div');

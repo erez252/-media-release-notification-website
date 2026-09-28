@@ -57,6 +57,7 @@
             <button class="pill active" data-type="all">All</button>
             <button class="pill" data-type="movie">Movies</button>
             <button class="pill" data-type="tv">TV</button>
+            <button class="pill" data-type="game">Games</button>
           </div>
           <div class="search-input-wrap">
             <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -121,6 +122,16 @@
           <div id="tv-results" class="results-row"></div>
         </div>
 
+        <div id="games-results-wrap" class="results-group hidden">
+          <h3 class="results-group-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 12h4m-2-2v4M15 12h.01M18 12h.01M3 7h18a1 1 0 011 1v8a1 1 0 01-1 1H3a1 1 0 01-1-1V8a1 1 0 011-1z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Games
+          </h3>
+          <div id="games-results" class="results-row"></div>
+        </div>
+
         <p id="no-search-results" class="empty-state hidden">No results found. Try a different search term.</p>
       </section>
 
@@ -156,8 +167,10 @@
             <!-- Type filter -->
             <select id="type-filter" class="filter-select" aria-label="Filter by type">
               <option value="all">All Types</option>
+              <option value="movie-tv">Movies & TV</option>
               <option value="movie">Movies</option>
               <option value="tv">TV Shows</option>
+              <option value="game">Games</option>
             </select>
             <!-- Genre filter -->
             <select id="genre-filter" class="filter-select" aria-label="Filter by genre">
