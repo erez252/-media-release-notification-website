@@ -448,7 +448,17 @@ function applyFiltersAndSort() {
   // Start from master data, apply sort
   let items = [...watchlistData];
   if (sort === 'newest') {
-    items.reverse();
+    items.sort((a, b) => {
+      const da = a.added_date ?? '';
+      const db = b.added_date ?? '';
+      return db.localeCompare(da); // newest added_date first
+    });
+  } else if (sort === 'oldest') {
+    items.sort((a, b) => {
+      const da = a.added_date ?? '';
+      const db = b.added_date ?? '';
+      return da.localeCompare(db); // oldest added_date first
+    });
   } else if (sort === 'release-desc') {
     items.sort((a, b) => {
       const da = getDate(a), db = getDate(b);
@@ -466,7 +476,6 @@ function applyFiltersAndSort() {
       return da.localeCompare(db);
     });
   }
-  // 'oldest' keeps the original API order (no change needed)
 
   // Apply filters
   items = items.filter(item => {
