@@ -759,12 +759,56 @@ input {
   margin-top: auto;
 }
 
+.watch-card-btn-row {
+  display: flex;
+  gap: 6px;
+}
+
 .remove-error-msg {
   font-size: 0.72rem;
   color: #ff6b73;
   margin-bottom: 6px;
   line-height: 1.3;
 }
+
+/* Notification toggle button — fill=on, outline=off (no color, like YouTube) */
+.btn-notif {
+  flex: 1;
+  justify-content: center;
+  padding: 0.4rem 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  transition: background var(--transition), color var(--transition), opacity var(--transition);
+}
+
+.btn-notif:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text-secondary);
+}
+
+.btn-notif-on {
+  color: var(--text-primary);
+}
+
+.btn-notif-off {
+  color: var(--text-muted);
+}
+
+/* Trash remove button */
+.btn-trash {
+  flex-shrink: 0;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-sm);
+  background: rgba(229, 9, 20, 0.1);
+  color: #ff6b73;
+  border: 1px solid rgba(229, 9, 20, 0.22);
+  transition: background var(--transition), opacity var(--transition);
+}
+.btn-trash:not(:disabled):hover  { background: rgba(229, 9, 20, 0.22); }
+.btn-trash:not(:disabled):active { transform: scale(0.97); }
+.btn-trash:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ─────────────────────────────────────────────────────────────
    Responsive breakpoints

@@ -341,7 +341,7 @@ function buildWatchCard(item) {
 
   card.appendChild(body);
 
-  // Footer with remove button
+  // Footer with notification toggle + trash remove
   const footer = document.createElement('div');
   footer.className = 'watch-card-footer';
 
@@ -349,12 +349,28 @@ function buildWatchCard(item) {
   errorEl.className = 'remove-error-msg hidden';
   footer.appendChild(errorEl);
 
+  const btnRow = document.createElement('div');
+  btnRow.className = 'watch-card-btn-row';
+
+  // Notification toggle button
+  const notifBtn = document.createElement('button');
+  notifBtn.className = `btn btn-notif ${item.notifications ? 'btn-notif-on' : 'btn-notif-off'}`;
+  notifBtn.setAttribute('aria-label', `${item.notifications ? 'Disable' : 'Enable'} notifications for ${item.title}`);
+  notifBtn.innerHTML = item.notifications
+    ? `<svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9z" fill="currentColor"/><path d="M13.73 21a2 2 0 01-3.46 0" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>`
+    : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0M3 3l18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  notifBtn.addEventListener('click', () => handleToggleNotification(item.id, item.media_type, notifBtn, errorEl));
+  btnRow.appendChild(notifBtn);
+
+  // Trash remove button
   const removeBtn = document.createElement('button');
-  removeBtn.className = 'btn btn-danger btn-full';
-  removeBtn.innerHTML = `<span class="btn-text">Remove</span><span class="btn-spinner spinner hidden" aria-hidden="true"></span>`;
+  removeBtn.className = 'btn btn-trash';
+  removeBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><polyline points="3 6 5 6 21 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6M10 11v6M14 11v6M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   removeBtn.setAttribute('aria-label', `Remove ${item.title} from watchlist`);
   removeBtn.addEventListener('click', () => handleRemove(item.id, item.media_type, card, removeBtn, errorEl));
-  footer.appendChild(removeBtn);
+  btnRow.appendChild(removeBtn);
+
+  footer.appendChild(btnRow);
 
   card.appendChild(footer);
   return card;
@@ -396,6 +412,50 @@ async function handleRemove(movieId, movieType, cardEl, btn, errorEl) {
     populateGenreFilter();
     applyFiltersAndSort();
   }, 250);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Toggle notifications
+// ─────────────────────────────────────────────────────────────
+
+function updateNotifBtn(btn, enabled) {
+  btn.className = `btn btn-notif ${enabled ? 'btn-notif-on' : 'btn-notif-off'}`;
+  btn.setAttribute('aria-label', enabled ? btn.getAttribute('aria-label').replace('Enable', 'Disable') : btn.getAttribute('aria-label').replace('Disable', 'Enable'));
+  btn.innerHTML = enabled
+    ? `<svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9z" fill="currentColor"/><path d="M13.73 21a2 2 0 01-3.46 0" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>`
+    : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0M3 3l18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+async function handleToggleNotification(movieId, movieType, btn, errorEl) {
+  clearError(errorEl);
+
+  // Read current state from button class, flip it
+  const currentlyOn = btn.classList.contains('btn-notif-on');
+  const newState    = !currentlyOn;
+
+  btn.disabled = true;
+
+  const { ok, status, data } = await apiPost('/toggle/notification', {
+    password:             currentPassword,
+    movieId:              String(movieId),
+    movieType:            movieType,
+    notifications_enabled: newState,
+  });
+
+  btn.disabled = false;
+
+  if (!ok || data?.success === 'false') {
+    showError(errorEl, 'Could not update notifications. Please try again.');
+    return;
+  }
+
+  // Use notification_status from response as source of truth
+  const confirmed = data?.notification_status === true;
+  updateNotifBtn(btn, confirmed);
+
+  // Update in-memory data
+  const item = watchlistData.find(i => String(i.id) === String(movieId) && i.media_type === movieType);
+  if (item) item.notifications = confirmed;
 }
 
 // ─────────────────────────────────────────────────────────────
