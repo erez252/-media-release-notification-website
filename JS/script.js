@@ -661,7 +661,8 @@ function buildResultCard(item) {
   // games and movies use `release_date`; TV shows use `first_air_date`
   const date    = (isMovie || isGame) ? item.release_date : item.first_air_date;
   const year    = date ? date.slice(0, 4) : '—';
-  const vote    = item.vote_average ? item.vote_average.toFixed(1) : null;
+  const rawVote = isGame ? item.vote_average / 10 : item.vote_average;
+  const vote    = rawVote ? rawVote.toFixed(1) : null;
 
   const card = document.createElement('div');
   card.className = 'result-card';
