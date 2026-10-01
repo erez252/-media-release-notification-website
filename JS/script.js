@@ -49,6 +49,14 @@ const typeFilter      = $('type-filter');
 const genreFilter     = $('genre-filter');
 const sortSelect      = $('sort-select');
 
+// Detail overlay
+const detailOverlay   = $('detail-overlay');
+const detailPanel     = $('detail-panel');
+const detailLoading   = $('detail-loading');
+const detailError     = $('detail-error');
+const detailContent   = $('detail-content');
+const detailCloseBtn  = $('detail-close-btn');
+
 // Search type filter (All / Movies / TV)
 let searchTypeFilter = 'all'; // 'all' | 'movie' | 'tv'
 let lastSearchResults = null; // { movies: [], tvShows: [] } — cached from last API call
@@ -351,6 +359,16 @@ function buildWatchCard(item) {
 
   const btnRow = document.createElement('div');
   btnRow.className = 'watch-card-btn-row';
+
+  // Info button — movies only
+  if (item.media_type === 'movie') {
+    const infoBtn = document.createElement('button');
+    infoBtn.className = 'btn btn-info-icon';
+    infoBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M12 16v-4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+    infoBtn.setAttribute('aria-label', `More info about ${item.title}`);
+    infoBtn.addEventListener('click', () => openDetailOverlay(item.id));
+    btnRow.appendChild(infoBtn);
+  }
 
   // Notification toggle button
   const notifBtn = document.createElement('button');
@@ -775,6 +793,355 @@ async function refreshWatchlist() {
   watchlistData = Array.isArray(data) ? data : [];
   populateGenreFilter();
   applyFiltersAndSort();
+}
+
+// ─────────────────────────────────────────────────────────────
+// Movie detail overlay
+// ─────────────────────────────────────────────────────────────
+
+const TMDB_LOGO_BASE    = 'https://image.tmdb.org/t/p/w92';
+const TMDB_BACKDROP_BASE = 'https://image.tmdb.org/t/p/w1280';
+const TMDB_POSTER_DETAIL = 'https://image.tmdb.org/t/p/w342';
+
+function openDetailOverlay(movieId) {
+  // Reset state
+  detailContent.innerHTML = '';
+  hide(detailContent);
+  hide(detailError);
+  show(detailLoading);
+  show(detailOverlay);
+  document.body.style.overflow = 'hidden';
+  detailPanel.scrollTop = 0;
+  fetchMovieDetail(movieId);
+}
+
+function closeDetailOverlay() {
+  hide(detailOverlay);
+  document.body.style.overflow = '';
+  // Remove any iframes to stop video playback
+  detailContent.querySelectorAll('iframe').forEach(f => f.remove());
+}
+
+detailCloseBtn.addEventListener('click', closeDetailOverlay);
+detailOverlay.addEventListener('click', e => {
+  if (e.target === detailOverlay) closeDetailOverlay();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !detailOverlay.classList.contains('hidden')) closeDetailOverlay();
+});
+
+async function fetchMovieDetail(movieId) {
+  const { ok, status, data } = await apiPost('/info/movie', {
+    password: currentPassword,
+    movieId:  String(movieId),
+  });
+
+  hide(detailLoading);
+
+  if (!ok || data?.success === false) {
+    showError(detailError, data?.message || 'Could not load movie details. Please try again.');
+    return;
+  }
+
+  buildDetailContent(data);
+  show(detailContent);
+}
+
+function fmt(n) {
+  // Format large numbers with commas
+  if (!n || n === 0) return null;
+  return n.toLocaleString('en-US');
+}
+
+function buildDetailContent(d) {
+  detailContent.innerHTML = '';
+
+  // Intl helpers for language/country code → full name
+  const langNames    = new Intl.DisplayNames(['en'], { type: 'language' });
+  const regionNames  = new Intl.DisplayNames(['en'], { type: 'region' });
+  const fullLang     = country => { try { return langNames.of(country); } catch { return country.toUpperCase(); } };
+  const fullRegion   = code    => { try { return regionNames.of(code); } catch { return code; } };
+  // Format a YYYY-MM-DD string into the user's local date format
+  const fmtDate = str => {
+    if (!str) return null;
+    try {
+      // Parse as local date (append T00:00:00 to avoid UTC shift)
+      return new Date(`${str}T00:00:00`).toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' });
+    } catch { return str; }
+  };
+
+  // ── Backdrop ──────────────────────────────────────────────
+  if (d.backdrop_path) {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'detail-hero-backdrop';
+    backdrop.style.backgroundImage = `url(${TMDB_BACKDROP_BASE}${d.backdrop_path})`;
+    detailContent.appendChild(backdrop);
+  }
+
+  // ── Hero section (poster + headline info) ─────────────────
+  const hero = document.createElement('div');
+  hero.className = 'detail-hero';
+
+  // Poster
+  const posterWrap = document.createElement('div');
+  posterWrap.className = 'detail-poster-wrap';
+  if (d.poster_path) {
+    const img = document.createElement('img');
+    img.src = `${TMDB_POSTER_DETAIL}${d.poster_path}`;
+    img.alt = d.title;
+    img.className = 'detail-poster';
+    img.loading = 'eager';
+    posterWrap.appendChild(img);
+  } else {
+    const ph = document.createElement('div');
+    ph.className = 'detail-poster-placeholder';
+    ph.textContent = 'No image';
+    posterWrap.appendChild(ph);
+  }
+  hero.appendChild(posterWrap);
+
+  // Headline info
+  const headline = document.createElement('div');
+  headline.className = 'detail-headline';
+
+  const titleEl = document.createElement('h2');
+  titleEl.className = 'detail-title';
+  titleEl.textContent = d.title;
+  headline.appendChild(titleEl);
+
+  if (d.tagline) {
+    const tagEl = document.createElement('p');
+    tagEl.className = 'detail-tagline';
+    tagEl.textContent = `"${d.tagline}"`;
+    headline.appendChild(tagEl);
+  }
+
+  // Rating line
+  if (d.vote_average) {
+    const ratingEl = document.createElement('div');
+    ratingEl.className = 'detail-meta-row detail-rating';
+    ratingEl.textContent = `★ ${d.vote_average.toFixed(1)}  (${fmt(d.vote_count)} votes)`;
+    headline.appendChild(ratingEl);
+  }
+
+  // Runtime · Release date line
+  const runtimeDateParts = [];
+  if (d.runtime)      runtimeDateParts.push(`${Math.floor(d.runtime/60)}h ${d.runtime%60}m`);
+  if (d.release_date) runtimeDateParts.push(fmtDate(d.release_date));
+  if (runtimeDateParts.length) {
+    const rdEl = document.createElement('div');
+    rdEl.className = 'detail-meta-row';
+    rdEl.textContent = runtimeDateParts.join('  ·  ');
+    headline.appendChild(rdEl);
+  }
+
+  // Status line
+  if (d.status) {
+    const statusEl = document.createElement('div');
+    statusEl.className = 'detail-meta-row detail-status';
+    statusEl.textContent = d.status;
+    headline.appendChild(statusEl);
+  }
+
+  // Genres
+  if (d.genres?.length) {
+    const genreWrap = document.createElement('div');
+    genreWrap.className = 'detail-genres';
+    d.genres.forEach(g => {
+      const tag = document.createElement('span');
+      tag.className = 'genre-tag';
+      tag.textContent = g.name;
+      genreWrap.appendChild(tag);
+    });
+    headline.appendChild(genreWrap);
+  }
+
+  // Digital / expected on digital
+  const digitalEl = document.createElement('div');
+  digitalEl.className = 'detail-digital';
+  if (d.digital) {
+    digitalEl.innerHTML = `<span class="digital-indicator digital-yes">✓ Available digitally</span>`;
+  } else if (d.expected_on_digital) {
+    const raw   = d.expected_on_digital;
+    const label = raw === 'Unknown(?)' ? 'Unknown' : (fmtDate(raw) ?? raw);
+    digitalEl.innerHTML = `<span class="digital-indicator digital-pending">⏳ Expected on digital: ${label}</span>`;
+  }
+  if (digitalEl.innerHTML) headline.appendChild(digitalEl);
+
+  // External links — Official Site, IMDb, TMDB
+  const linksRow = document.createElement('div');
+  linksRow.className = 'detail-links';
+  if (d.homepage) {
+    const a = document.createElement('a');
+    a.href = d.homepage; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.className = 'detail-ext-link'; a.textContent = 'Official Site';
+    linksRow.appendChild(a);
+  }
+  if (d.imdb_id) {
+    const a = document.createElement('a');
+    a.href = `https://www.imdb.com/title/${d.imdb_id}`; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.className = 'detail-ext-link'; a.textContent = 'IMDb';
+    linksRow.appendChild(a);
+  }
+  if (d.id) {
+    const a = document.createElement('a');
+    a.href = `https://www.themoviedb.org/movie/${d.id}`; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.className = 'detail-ext-link'; a.textContent = 'TMDB';
+    linksRow.appendChild(a);
+  }
+  if (linksRow.children.length) headline.appendChild(linksRow);
+
+  hero.appendChild(headline);
+  detailContent.appendChild(hero);
+
+  // ── Body ──────────────────────────────────────────────────
+  const body = document.createElement('div');
+  body.className = 'detail-body';
+
+  // Overview
+  if (d.overview) {
+    const sec = detailSection('Overview');
+    const p = document.createElement('p');
+    p.className = 'detail-overview';
+    p.textContent = d.overview;
+    sec.appendChild(p);
+    body.appendChild(sec);
+  }
+
+  // Trailer / teaser embed
+  const videos = d.trailers?.length ? d.trailers : (d.teasers?.length ? d.teasers : []);
+  const officialVideo = videos.find(v => v.official) || videos[0];
+  if (officialVideo) {
+    const sec = detailSection(d.trailers?.length ? 'Trailer' : 'Teaser');
+    const wrap = document.createElement('div');
+    wrap.className = 'detail-video-wrap';
+    const iframe = document.createElement('iframe');
+    iframe.src = `https://www.youtube.com/embed/${officialVideo.key}?rel=0`;
+    iframe.title = officialVideo.name;
+    iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+    iframe.allowFullscreen = true;
+    iframe.className = 'detail-video-iframe';
+    wrap.appendChild(iframe);
+    sec.appendChild(wrap);
+    body.appendChild(sec);
+  }
+
+  // Watch providers
+  if (d.watch_providers && Object.keys(d.watch_providers).length) {
+    const sec = detailSection('Where to Watch');
+    const countries = Object.keys(d.watch_providers);
+    const sorted = ['US', ...countries.filter(c => c !== 'US')];
+    sorted.forEach(cc => {
+      const pData = d.watch_providers[cc];
+      if (!pData) return;
+      const countryBlock = document.createElement('div');
+      countryBlock.className = 'detail-provider-country';
+      const countryLabel = document.createElement('div');
+      countryLabel.className = 'detail-provider-label';
+      countryLabel.textContent = fullRegion(cc);
+      countryBlock.appendChild(countryLabel);
+
+      ['flatrate', 'rent', 'buy'].forEach(type => {
+        if (!pData[type]?.length) return;
+        const typeLabel = document.createElement('span');
+        typeLabel.className = 'detail-provider-type';
+        typeLabel.textContent = type === 'flatrate' ? 'Stream' : type.charAt(0).toUpperCase() + type.slice(1);
+        countryBlock.appendChild(typeLabel);
+
+        const logoRow = document.createElement('div');
+        logoRow.className = 'detail-provider-logos';
+        const sortedProviders = [...pData[type]].sort((a,b) => (a.display_priority||0) - (b.display_priority||0));
+        sortedProviders.forEach(p => {
+          const a = document.createElement('a');
+          a.href = pData.link || '#'; a.target = '_blank'; a.rel = 'noopener noreferrer';
+          a.title = p.provider_name;
+          if (p.logo_path) {
+            const img = document.createElement('img');
+            img.src = `${TMDB_LOGO_BASE}${p.logo_path}`;
+            img.alt = p.provider_name;
+            img.className = 'detail-provider-logo';
+            img.loading = 'lazy';
+            a.appendChild(img);
+          } else {
+            a.textContent = p.provider_name;
+            a.className += ' detail-provider-text';
+          }
+          logoRow.appendChild(a);
+        });
+        countryBlock.appendChild(logoRow);
+      });
+      sec.appendChild(countryBlock);
+    });
+    body.appendChild(sec);
+  }
+
+  // Details section — spread out, release date first, budget+revenue side by side
+  const prodSec = detailSection('Details');
+  const detailGrid = document.createElement('div');
+  detailGrid.className = 'detail-info-grid';
+
+  // Helper to add a single info row
+  const addRow = (label, value) => {
+    const row = document.createElement('div');
+    row.className = 'detail-info-row';
+    row.innerHTML = `<span class="detail-info-label">${label}</span><span class="detail-info-value">${value}</span>`;
+    detailGrid.appendChild(row);
+  };
+
+  // Helper to add a double row (two items side by side, spanning full grid width)
+  const addDoubleRow = (label1, value1, label2, value2) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'detail-info-double-row';
+    wrap.innerHTML = `
+      <div class="detail-info-row"><span class="detail-info-label">${label1}</span><span class="detail-info-value">${value1}</span></div>
+      <div class="detail-info-row"><span class="detail-info-label">${label2}</span><span class="detail-info-value">${value2}</span></div>`;
+    detailGrid.appendChild(wrap);
+  };
+
+  if (d.release_date)              addRow('Release Date', fmtDate(d.release_date));
+  if (d.production_companies?.[0]) addRow('Studio', d.production_companies[0].name);
+  if (d.origin_country?.length)    addRow('Country', d.origin_country.map(fullRegion).join(', '));
+  if (d.original_language)         addRow('Language', fullLang(d.original_language));
+
+  const hasBudget  = d.budget  && d.budget  > 0;
+  const hasRevenue = d.revenue && d.revenue > 0;
+  if (hasBudget && hasRevenue) {
+    addDoubleRow('Budget', `$${fmt(d.budget)}`, 'Revenue', `$${fmt(d.revenue)}`);
+  } else {
+    if (hasBudget)  addRow('Budget',  `$${fmt(d.budget)}`);
+    if (hasRevenue) addRow('Revenue', `$${fmt(d.revenue)}`);
+  }
+
+  prodSec.appendChild(detailGrid);
+  body.appendChild(prodSec);
+
+  // Keywords
+  if (d.keywords?.length) {
+    const sec = detailSection('Keywords');
+    const wrap = document.createElement('div');
+    wrap.className = 'detail-keywords';
+    d.keywords.forEach(k => {
+      const tag = document.createElement('span');
+      tag.className = 'detail-keyword-tag';
+      tag.textContent = k.name;
+      wrap.appendChild(tag);
+    });
+    sec.appendChild(wrap);
+    body.appendChild(sec);
+  }
+
+  detailContent.appendChild(body);
+}
+
+/** Helper: create a section with a heading */
+function detailSection(title) {
+  const sec = document.createElement('div');
+  sec.className = 'detail-section';
+  const h = document.createElement('h3');
+  h.className = 'detail-section-title';
+  h.textContent = title;
+  sec.appendChild(h);
+  return sec;
 }
 
 // ─────────────────────────────────────────────────────────────
