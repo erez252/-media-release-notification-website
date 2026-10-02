@@ -360,13 +360,19 @@ function buildWatchCard(item) {
   const btnRow = document.createElement('div');
   btnRow.className = 'watch-card-btn-row';
 
-  // Info button — movies only
-  if (item.media_type === 'movie') {
+  // Info button — movies and TV shows
+  if (item.media_type === 'movie' || item.media_type === 'tv') {
     const infoBtn = document.createElement('button');
     infoBtn.className = 'btn btn-info-icon';
     infoBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M12 16v-4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
     infoBtn.setAttribute('aria-label', `More info about ${item.title}`);
-    infoBtn.addEventListener('click', () => openDetailOverlay(item.id));
+    infoBtn.addEventListener('click', () => {
+      if (item.media_type === 'movie') {
+        openDetailOverlay(item.id, 'movie');
+      } else {
+        openDetailOverlay(item.id, 'tv', item.tvmaze_id);
+      }
+    });
     btnRow.appendChild(infoBtn);
   }
 
@@ -803,7 +809,7 @@ const TMDB_LOGO_BASE    = 'https://image.tmdb.org/t/p/w92';
 const TMDB_BACKDROP_BASE = 'https://image.tmdb.org/t/p/w1280';
 const TMDB_POSTER_DETAIL = 'https://image.tmdb.org/t/p/w342';
 
-function openDetailOverlay(movieId) {
+function openDetailOverlay(id, type = 'movie', tvmazeId = null) {
   // Reset state
   detailContent.innerHTML = '';
   hide(detailContent);
@@ -812,7 +818,11 @@ function openDetailOverlay(movieId) {
   show(detailOverlay);
   document.body.style.overflow = 'hidden';
   detailPanel.scrollTop = 0;
-  fetchMovieDetail(movieId);
+  if (type === 'tv') {
+    fetchTVDetail(id, tvmazeId);
+  } else {
+    fetchMovieDetail(id);
+  }
 }
 
 function closeDetailOverlay() {
@@ -1142,6 +1152,532 @@ function detailSection(title) {
   h.textContent = title;
   sec.appendChild(h);
   return sec;
+}
+
+// ─────────────────────────────────────────────────────────────
+// TV detail overlay
+// ─────────────────────────────────────────────────────────────
+
+const TMDB_PROFILE_BASE = 'https://image.tmdb.org/t/p/w185';
+
+async function fetchTVDetail(showId, tvmazeId) {
+  const { ok, data } = await apiPost('/info/tv', {
+    password:  currentPassword,
+    showId:    String(showId),
+    tvmazeid:  tvmazeId ? String(tvmazeId) : undefined,
+  });
+
+  hide(detailLoading);
+
+  if (!ok || data?.success === false) {
+    showError(detailError, data?.message || 'Could not load TV details. Please try again.');
+    return;
+  }
+
+  buildTVDetailContent(data);
+  show(detailContent);
+}
+
+/** Strip HTML tags from TVMaze summary strings */
+function stripHtml(str) {
+  if (!str) return '';
+  return str.replace(/<[^>]*>/g, '');
+}
+
+/** Determine the default season to show: currently airing or most recent */
+function defaultSeason(episodes, status) {
+  if (!episodes?.length) return 1;
+  const seasons = [...new Set(episodes.map(e => e.season))].sort((a, b) => a - b);
+  // If returning/airing, find the season with the most recent future or today episode
+  const isActive = status && (status.toLowerCase().includes('return') || status.toLowerCase().includes('airing'));
+  if (isActive) {
+    const now = Date.now();
+    // Find season whose latest episode is closest to now (could be past or upcoming)
+    let bestSeason = seasons[seasons.length - 1];
+    let bestDiff = Infinity;
+    seasons.forEach(s => {
+      const eps = episodes.filter(e => e.season === s);
+      const latest = eps.reduce((best, e) => {
+        const t = e.airstamp ? new Date(e.airstamp).getTime() : 0;
+        return t > best ? t : best;
+      }, 0);
+      const diff = Math.abs(now - latest);
+      if (diff < bestDiff) { bestDiff = diff; bestSeason = s; }
+    });
+    return bestSeason;
+  }
+  return seasons[seasons.length - 1];
+}
+
+function buildTVDetailContent(d) {
+  detailContent.innerHTML = '';
+
+  // Intl helpers
+  const langNames   = new Intl.DisplayNames(['en'], { type: 'language' });
+  const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+  const fullLang    = c => { try { return langNames.of(c); } catch { return c.toUpperCase(); } };
+  const fullRegion  = c => { try { return regionNames.of(c); } catch { return c; } };
+  const fmtDate     = str => {
+    if (!str) return null;
+    try { return new Date(`${str}T00:00:00`).toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' }); }
+    catch { return str; }
+  };
+  const fmtStamp = str => {
+    if (!str) return null;
+    try { return new Date(str).toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' }); }
+    catch { return str; }
+  };
+
+  // ── Backdrop ──────────────────────────────────────────────
+  if (d.backdrop_path) {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'detail-hero-backdrop';
+    backdrop.style.backgroundImage = `url(${TMDB_BACKDROP_BASE}${d.backdrop_path})`;
+    detailContent.appendChild(backdrop);
+  }
+
+  // ── Hero ──────────────────────────────────────────────────
+  const hero = document.createElement('div');
+  hero.className = 'detail-hero';
+
+  const posterWrap = document.createElement('div');
+  posterWrap.className = 'detail-poster-wrap';
+  if (d.poster_path) {
+    const img = document.createElement('img');
+    img.src = `${TMDB_POSTER_DETAIL}${d.poster_path}`;
+    img.alt = d.title;
+    img.className = 'detail-poster';
+    img.loading = 'eager';
+    posterWrap.appendChild(img);
+  } else {
+    const ph = document.createElement('div');
+    ph.className = 'detail-poster-placeholder';
+    ph.textContent = 'No image';
+    posterWrap.appendChild(ph);
+  }
+  hero.appendChild(posterWrap);
+
+  const headline = document.createElement('div');
+  headline.className = 'detail-headline';
+
+  const titleEl = document.createElement('h2');
+  titleEl.className = 'detail-title';
+  titleEl.textContent = d.title;
+  headline.appendChild(titleEl);
+
+  if (d.tagline) {
+    const tagEl = document.createElement('p');
+    tagEl.className = 'detail-tagline';
+    tagEl.textContent = `"${d.tagline}"`;
+    headline.appendChild(tagEl);
+  }
+
+  if (d.vote_average) {
+    const ratingEl = document.createElement('div');
+    ratingEl.className = 'detail-meta-row detail-rating';
+    ratingEl.textContent = `★ ${d.vote_average.toFixed(1)}  (${(d.vote_count||0).toLocaleString('en-US')} votes)`;
+    headline.appendChild(ratingEl);
+  }
+
+  // Runtime: use d.runtime if valid number, otherwise average episode runtimes
+  let rtVal = Array.isArray(d.runtime) ? null : (typeof d.runtime === 'number' && d.runtime > 0 ? d.runtime : null);
+  if (!rtVal && d.episodes?.length) {
+    const rts = d.episodes.map(e => e.runtime).filter(r => typeof r === 'number' && r > 0);
+    if (rts.length) rtVal = Math.round(rts.reduce((a, b) => a + b, 0) / rts.length);
+  }
+  const airParts = [];
+  if (rtVal) airParts.push(`${rtVal}m / ep`);
+  if (d.release_date) airParts.push(`First aired ${fmtDate(d.release_date)}`);
+  if (airParts.length) {
+    const el = document.createElement('div');
+    el.className = 'detail-meta-row';
+    el.textContent = airParts.join('  ·  ');
+    headline.appendChild(el);
+  }
+
+  // Last air date
+  if (d.last_air_date) {
+    const el = document.createElement('div');
+    el.className = 'detail-meta-row detail-status';
+    el.textContent = `Last aired ${fmtDate(d.last_air_date)}`;
+    headline.appendChild(el);
+  }
+
+  // Next episode from episodes airstamp (more precise — includes time)
+  const nextEp = d.episodes?.find(e => e.airstamp && new Date(e.airstamp) > new Date());
+  if (nextEp) {
+    const el = document.createElement('div');
+    el.className = 'detail-meta-row detail-next-air';
+    const epCode = `S${String(nextEp.season).padStart(2,'0')}E${String(nextEp.number ?? '?').padStart(2,'0')}`;
+    const epTime = new Date(nextEp.airstamp).toLocaleString(undefined, {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
+    el.textContent = `▶ Next: ${epCode} — ${nextEp.name}  ·  ${epTime}`;
+    headline.appendChild(el);
+  } else if (d.next_air_date) {
+    // fallback to overview-level date if no episode data
+    const el = document.createElement('div');
+    el.className = 'detail-meta-row detail-next-air';
+    el.textContent = `▶ Next episode ${fmtDate(d.next_air_date)}`;
+    headline.appendChild(el);
+  }
+
+  // Status
+  if (d.status) {
+    const el = document.createElement('div');
+    el.className = 'detail-meta-row detail-status';
+    el.textContent = d.status;
+    headline.appendChild(el);
+  }
+
+  if (d.genres?.length) {
+    const genreWrap = document.createElement('div');
+    genreWrap.className = 'detail-genres';
+    d.genres.forEach(g => {
+      const tag = document.createElement('span');
+      tag.className = 'genre-tag';
+      tag.textContent = g.name;
+      genreWrap.appendChild(tag);
+    });
+    headline.appendChild(genreWrap);
+  }
+
+  // External links
+  const linksRow = document.createElement('div');
+  linksRow.className = 'detail-links';
+  if (d.homepage) {
+    const a = document.createElement('a');
+    a.href = d.homepage; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.className = 'detail-ext-link'; a.textContent = 'Official Site';
+    linksRow.appendChild(a);
+  }
+  if (d.imdb_id) {
+    const a = document.createElement('a');
+    a.href = `https://www.imdb.com/title/${d.imdb_id}`; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.className = 'detail-ext-link'; a.textContent = 'IMDb';
+    linksRow.appendChild(a);
+  }
+  if (d.id) {
+    const a = document.createElement('a');
+    a.href = `https://www.themoviedb.org/tv/${d.id}`; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.className = 'detail-ext-link'; a.textContent = 'TMDB';
+    linksRow.appendChild(a);
+  }
+  if (d.tvdb_id) {
+    const a = document.createElement('a');
+    a.href = `https://www.thetvdb.com/?tab=series&id=${d.tvdb_id}`; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.className = 'detail-ext-link'; a.textContent = 'TVDB';
+    linksRow.appendChild(a);
+  }
+  if (d.tvmaze_id) {
+    const a = document.createElement('a');
+    a.href = `https://www.tvmaze.com/shows/${d.tvmaze_id}`; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.className = 'detail-ext-link'; a.textContent = 'TVmaze';
+    linksRow.appendChild(a);
+  }
+  if (linksRow.children.length) headline.appendChild(linksRow);
+
+  hero.appendChild(headline);
+  detailContent.appendChild(hero);
+
+  // ── Body ──────────────────────────────────────────────────
+  const body = document.createElement('div');
+  body.className = 'detail-body';
+
+  // Overview
+  if (d.overview) {
+    const sec = detailSection('Overview');
+    const p = document.createElement('p');
+    p.className = 'detail-overview';
+    p.textContent = d.overview;
+    sec.appendChild(p);
+    body.appendChild(sec);
+  }
+
+  // Trailer / teaser
+  const videos = d.trailers?.length ? d.trailers : (d.teasers?.length ? d.teasers : []);
+  const officialVideo = videos.find(v => v.official) || videos[0];
+  if (officialVideo) {
+    const sec = detailSection(d.trailers?.length ? 'Trailer' : 'Teaser');
+    const wrap = document.createElement('div');
+    wrap.className = 'detail-video-wrap';
+    const iframe = document.createElement('iframe');
+    iframe.src = `https://www.youtube.com/embed/${officialVideo.key}?rel=0`;
+    iframe.title = officialVideo.name;
+    iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+    iframe.allowFullscreen = true;
+    iframe.className = 'detail-video-iframe';
+    wrap.appendChild(iframe);
+    sec.appendChild(wrap);
+    body.appendChild(sec);
+  }
+
+  // Cast
+  if (d.cast?.length) {
+    const sec = detailSection('Cast');
+    const castRow = document.createElement('div');
+    castRow.className = 'detail-cast-row';
+    d.cast.forEach(member => {
+      const card = document.createElement('div');
+      card.className = 'detail-cast-card';
+      if (member.profile_path) {
+        const img = document.createElement('img');
+        img.src = `${TMDB_PROFILE_BASE}${member.profile_path}`;
+        img.alt = member.name;
+        img.className = 'detail-cast-photo';
+        img.loading = 'lazy';
+        img.onerror = () => {
+          const ph = document.createElement('div');
+          ph.className = 'detail-cast-photo-placeholder';
+          ph.textContent = member.name.charAt(0);
+          img.replaceWith(ph);
+        };
+        card.appendChild(img);
+      } else {
+        const ph = document.createElement('div');
+        ph.className = 'detail-cast-photo-placeholder';
+        ph.textContent = member.name.charAt(0);
+        card.appendChild(ph);
+      }
+      const name = document.createElement('div');
+      name.className = 'detail-cast-name';
+      name.textContent = member.name;
+      card.appendChild(name);
+      const char = document.createElement('div');
+      char.className = 'detail-cast-char';
+      char.textContent = member.character;
+      card.appendChild(char);
+      castRow.appendChild(card);
+    });
+    sec.appendChild(castRow);
+    body.appendChild(sec);
+  }
+
+  // Watch providers
+  if (d.watch_providers && Object.keys(d.watch_providers).length) {
+    const sec = detailSection('Where to Watch');
+    const countries = Object.keys(d.watch_providers);
+    const sorted = ['US', ...countries.filter(c => c !== 'US')];
+    sorted.forEach(cc => {
+      const pData = d.watch_providers[cc];
+      if (!pData) return;
+      const countryBlock = document.createElement('div');
+      countryBlock.className = 'detail-provider-country';
+      const countryLabel = document.createElement('div');
+      countryLabel.className = 'detail-provider-label';
+      countryLabel.textContent = fullRegion(cc);
+      countryBlock.appendChild(countryLabel);
+      ['flatrate', 'rent', 'buy'].forEach(type => {
+        if (!pData[type]?.length) return;
+        const typeLabel = document.createElement('span');
+        typeLabel.className = 'detail-provider-type';
+        typeLabel.textContent = type === 'flatrate' ? 'Stream' : type.charAt(0).toUpperCase() + type.slice(1);
+        countryBlock.appendChild(typeLabel);
+        const logoRow = document.createElement('div');
+        logoRow.className = 'detail-provider-logos';
+        [...pData[type]].sort((a,b) => (a.display_priority||0)-(b.display_priority||0)).forEach(p => {
+          const a = document.createElement('a');
+          a.href = pData.link || '#'; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.title = p.provider_name;
+          if (p.logo_path) {
+            const img = document.createElement('img');
+            img.src = `${TMDB_LOGO_BASE}${p.logo_path}`; img.alt = p.provider_name;
+            img.className = 'detail-provider-logo'; img.loading = 'lazy';
+            a.appendChild(img);
+          } else { a.textContent = p.provider_name; a.className += ' detail-provider-text'; }
+          logoRow.appendChild(a);
+        });
+        countryBlock.appendChild(logoRow);
+      });
+      sec.appendChild(countryBlock);
+    });
+    body.appendChild(sec);
+  }
+
+  // Episodes — grouped by season, cached, season selector pills
+  if (d.episodes?.length) {
+    const sec = detailSection('Episodes');
+
+    const seasons = [...new Set(d.episodes.map(e => e.season))].sort((a, b) => a - b);
+    const activeSeason = defaultSeason(d.episodes, d.status);
+
+    // Season selector
+    const seasonNav = document.createElement('div');
+    seasonNav.className = 'detail-season-nav';
+    const seasonLabel = document.createElement('span');
+    seasonLabel.className = 'detail-season-label';
+    seasonLabel.textContent = 'Season:';
+    seasonNav.appendChild(seasonLabel);
+    const pillGroup = document.createElement('div');
+    pillGroup.className = 'detail-season-pills';
+    seasons.forEach(s => {
+      const btn = document.createElement('button');
+      btn.className = `pill${s === activeSeason ? ' active' : ''}`;
+      btn.textContent = s;
+      btn.dataset.season = s;
+      btn.addEventListener('click', () => {
+        pillGroup.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+      });
+      pillGroup.appendChild(btn);
+    });
+    seasonNav.appendChild(pillGroup);
+    sec.appendChild(seasonNav);
+
+    // Toggle button to expand/collapse episodes
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'btn btn-ghost detail-ep-toggle';
+    toggleBtn.textContent = 'Show episodes ▾';
+    let epRendered = false;
+    let epExpanded = false;
+
+    // Episode grid container — collapsed by default
+    const episodeGrid = document.createElement('div');
+    episodeGrid.className = 'detail-episode-grid detail-episode-grid--collapsed';
+
+    toggleBtn.addEventListener('click', () => {
+      epExpanded = !epExpanded;
+      episodeGrid.classList.toggle('detail-episode-grid--collapsed', !epExpanded);
+      toggleBtn.textContent = epExpanded ? 'Hide episodes ▴' : 'Show episodes ▾';
+      // Render episodes lazily on first expand
+      if (epExpanded && !epRendered) {
+        renderEpisodes(episodeGrid, d.episodes, activeSeason, fmtStamp);
+        epRendered = true;
+      }
+      // Update season pill clicks to re-render into the now-visible grid
+    });
+
+    // Wire season pills to also use the grid (re-render when pill changes)
+    pillGroup.querySelectorAll('.pill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const s = Number(btn.dataset.season);
+        renderEpisodes(episodeGrid, d.episodes, s, fmtStamp);
+        epRendered = true;
+      });
+    });
+
+    sec.appendChild(toggleBtn);
+    sec.appendChild(episodeGrid);
+
+    body.appendChild(sec);
+  }
+
+  // Details grid
+  const prodSec = detailSection('Details');
+  const detailGrid = document.createElement('div');
+  detailGrid.className = 'detail-info-grid';
+  const addRow = (label, value) => {
+    const row = document.createElement('div');
+    row.className = 'detail-info-row';
+    row.innerHTML = `<span class="detail-info-label">${label}</span><span class="detail-info-value">${value}</span>`;
+    detailGrid.appendChild(row);
+  };
+  const addDoubleRow = (l1, v1, l2, v2) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'detail-info-double-row';
+    wrap.innerHTML = `<div class="detail-info-row"><span class="detail-info-label">${l1}</span><span class="detail-info-value">${v1}</span></div><div class="detail-info-row"><span class="detail-info-label">${l2}</span><span class="detail-info-value">${v2}</span></div>`;
+    detailGrid.appendChild(wrap);
+  };
+
+  if (d.release_date)              addRow('First Aired',  fmtDate(d.release_date));
+  if (d.last_air_date)             addRow('Last Aired',   fmtDate(d.last_air_date));
+  if (d.next_air_date)             addRow('Next Episode', fmtDate(d.next_air_date));
+  if (d.production_companies?.[0]) addRow('Studio',       d.production_companies[0].name);
+  if (d.origin_country?.length)    addRow('Country',      d.origin_country.map(fullRegion).join(', '));
+  if (d.original_language)         addRow('Language',     fullLang(d.original_language));
+  const hasBudget  = d.budget  && d.budget  > 0;
+  const hasRevenue = d.revenue && d.revenue > 0;
+  if (hasBudget && hasRevenue) {
+    addDoubleRow('Budget', `$${(d.budget).toLocaleString('en-US')}`, 'Revenue', `$${(d.revenue).toLocaleString('en-US')}`);
+  } else {
+    if (hasBudget)  addRow('Budget',  `$${(d.budget).toLocaleString('en-US')}`);
+    if (hasRevenue) addRow('Revenue', `$${(d.revenue).toLocaleString('en-US')}`);
+  }
+
+  prodSec.appendChild(detailGrid);
+  body.appendChild(prodSec);
+
+  // Keywords
+  if (d.keywords?.length) {
+    const sec = detailSection('Keywords');
+    const wrap = document.createElement('div');
+    wrap.className = 'detail-keywords';
+    d.keywords.forEach(k => {
+      const tag = document.createElement('span');
+      tag.className = 'detail-keyword-tag';
+      tag.textContent = k.name;
+      wrap.appendChild(tag);
+    });
+    sec.appendChild(wrap);
+    body.appendChild(sec);
+  }
+
+  detailContent.appendChild(body);
+}
+
+/** Render episode cards for a given season into the container. Pure client-side — no API call. */
+function renderEpisodes(container, allEpisodes, season, fmtStamp) {
+  container.innerHTML = '';
+  const eps = allEpisodes.filter(e => e.season === season);
+  eps.forEach(ep => {
+    const card = document.createElement('div');
+    card.className = 'detail-episode-card';
+
+    // Thumbnail
+    const thumbWrap = document.createElement('div');
+    thumbWrap.className = 'detail-ep-thumb-wrap';
+    if (ep.image?.medium) {
+      const img = document.createElement('img');
+      img.src = ep.image.medium;
+      img.alt = ep.name;
+      img.className = 'detail-ep-thumb';
+      img.loading = 'lazy';
+      img.onerror = () => { img.replaceWith(makeThumbnailPlaceholder()); };
+      thumbWrap.appendChild(img);
+    } else {
+      thumbWrap.appendChild(makeThumbnailPlaceholder());
+    }
+    card.appendChild(thumbWrap);
+
+    // Info
+    const info = document.createElement('div');
+    info.className = 'detail-ep-info';
+
+    const epLabel = document.createElement('div');
+    epLabel.className = 'detail-ep-label';
+    epLabel.textContent = `S${String(ep.season).padStart(2,'0')}E${String(ep.number ?? '?').padStart(2,'0')}`;
+    info.appendChild(epLabel);
+
+    const epName = document.createElement('div');
+    epName.className = 'detail-ep-name';
+    epName.textContent = ep.name;
+    info.appendChild(epName);
+
+    const epMeta = document.createElement('div');
+    epMeta.className = 'detail-ep-meta';
+    const metaParts = [];
+    if (ep.airstamp) metaParts.push(fmtStamp(ep.airstamp));
+    if (ep.runtime)  metaParts.push(`${ep.runtime}m`);
+    if (ep.rating?.average) metaParts.push(`★ ${ep.rating.average}`);
+    epMeta.textContent = metaParts.join('  ·  ');
+    info.appendChild(epMeta);
+
+    if (ep.summary) {
+      const epSummary = document.createElement('div');
+      epSummary.className = 'detail-ep-summary';
+      epSummary.textContent = stripHtml(ep.summary);
+      info.appendChild(epSummary);
+    }
+
+    card.appendChild(info);
+    container.appendChild(card);
+  });
+}
+
+function makeThumbnailPlaceholder() {
+  const div = document.createElement('div');
+  div.className = 'detail-ep-thumb-placeholder';
+  return div;
 }
 
 // ─────────────────────────────────────────────────────────────
