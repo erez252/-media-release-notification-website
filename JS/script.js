@@ -391,7 +391,28 @@ function buildWatchCard(item) {
   removeBtn.className = 'btn btn-trash';
   removeBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><polyline points="3 6 5 6 21 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6M10 11v6M14 11v6M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   removeBtn.setAttribute('aria-label', `Remove ${item.title} from watchlist`);
-  removeBtn.addEventListener('click', () => handleRemove(item.id, item.media_type, card, removeBtn, errorEl));
+  let removeConfirmTimer = null;
+  removeBtn.addEventListener('click', () => {
+    if (removeBtn.dataset.confirming === 'true') {
+      // Second click — confirm removal
+      clearTimeout(removeConfirmTimer);
+      delete removeBtn.dataset.confirming;
+      removeBtn.classList.remove('btn-trash--confirming');
+      removeBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><polyline points="3 6 5 6 21 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6M10 11v6M14 11v6M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      handleRemove(item.id, item.media_type, card, removeBtn, errorEl);
+    } else {
+      // First click — enter confirming state
+      removeBtn.dataset.confirming = 'true';
+      removeBtn.classList.add('btn-trash--confirming');
+      removeBtn.textContent = '✕ Sure?';
+      // Auto-revert after 3 seconds
+      removeConfirmTimer = setTimeout(() => {
+        delete removeBtn.dataset.confirming;
+        removeBtn.classList.remove('btn-trash--confirming');
+        removeBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><polyline points="3 6 5 6 21 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6M10 11v6M14 11v6M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      }, 3000);
+    }
+  });
   btnRow.appendChild(removeBtn);
 
   footer.appendChild(btnRow);
@@ -720,6 +741,16 @@ function buildResultCard(item) {
   const footer = document.createElement('div');
   footer.className = 'result-footer';
 
+  // More info button for movies and TV
+  if (item.media_type === 'movie' || item.media_type === 'tv') {
+    const infoBtn = document.createElement('button');
+    infoBtn.className = 'btn btn-info-icon';
+    infoBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M12 16v-4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+    infoBtn.setAttribute('aria-label', `More info about ${title}`);
+    infoBtn.addEventListener('click', () => openDetailOverlay(item.id, item.media_type));
+    footer.appendChild(infoBtn);
+  }
+
   const addBtn = document.createElement('button');
   addBtn.className = 'btn btn-add';
   addBtn.innerHTML = `<span class="btn-text">+ Add</span><span class="btn-spinner spinner hidden" aria-hidden="true"></span>`;
@@ -1018,23 +1049,13 @@ function buildDetailContent(d) {
     body.appendChild(sec);
   }
 
-  // Trailer / teaser embed
-  const videos = d.trailers?.length ? d.trailers : (d.teasers?.length ? d.teasers : []);
-  const officialVideo = videos.find(v => v.official) || videos[0];
-  if (officialVideo) {
-    const sec = detailSection(d.trailers?.length ? 'Trailer' : 'Teaser');
-    const wrap = document.createElement('div');
-    wrap.className = 'detail-video-wrap';
-    const iframe = document.createElement('iframe');
-    iframe.src = `https://www.youtube.com/embed/${officialVideo.key}?rel=0`;
-    iframe.title = officialVideo.name;
-    iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
-    iframe.allowFullscreen = true;
-    iframe.className = 'detail-video-iframe';
-    wrap.appendChild(iframe);
-    sec.appendChild(wrap);
-    body.appendChild(sec);
-  }
+  // Trailers / teasers — scrollable row
+  const videosSec = buildVideosSection(d);
+  if (videosSec) body.appendChild(videosSec);
+
+  // Directors + Cast
+  const castSec = buildCastDirectorsSection(d);
+  if (castSec) body.appendChild(castSec);
 
   // Watch providers
   if (d.watch_providers && Object.keys(d.watch_providers).length) {
@@ -1141,6 +1162,160 @@ function buildDetailContent(d) {
   }
 
   detailContent.appendChild(body);
+}
+
+/** Build a directors + cast section and return it. Used by both movie and TV detail. */
+function buildCastDirectorsSection(d) {
+  const hasDirectors = d.directors?.length > 0;
+  const hasCast      = d.cast?.length > 0;
+  if (!hasDirectors && !hasCast) return null;
+
+  const sec = detailSection(hasDirectors ? 'Directors & Cast' : 'Cast');
+
+  if (hasDirectors) {
+    const dirLabel = document.createElement('div');
+    dirLabel.className = 'detail-section-sub-label';
+    dirLabel.textContent = 'Directed by';
+    sec.appendChild(dirLabel);
+
+    const dirRow = document.createElement('div');
+    dirRow.className = 'detail-cast-row';
+    d.directors.forEach(member => {
+      const card = document.createElement('div');
+      card.className = 'detail-cast-card';
+      if (member.profile_path) {
+        const img = document.createElement('img');
+        img.src = `${TMDB_PROFILE_BASE}${member.profile_path}`;
+        img.alt = member.name;
+        img.className = 'detail-cast-photo';
+        img.loading = 'lazy';
+        img.onerror = () => {
+          const ph = document.createElement('div');
+          ph.className = 'detail-cast-photo-placeholder';
+          ph.textContent = member.name.charAt(0);
+          img.replaceWith(ph);
+        };
+        card.appendChild(img);
+      } else {
+        const ph = document.createElement('div');
+        ph.className = 'detail-cast-photo-placeholder';
+        ph.textContent = member.name.charAt(0);
+        card.appendChild(ph);
+      }
+      const name = document.createElement('div');
+      name.className = 'detail-cast-name';
+      name.textContent = member.name;
+      card.appendChild(name);
+      dirRow.appendChild(card);
+    });
+    sec.appendChild(dirRow);
+  }
+
+  if (hasCast) {
+    if (hasDirectors) {
+      const castLabel = document.createElement('div');
+      castLabel.className = 'detail-section-sub-label';
+      castLabel.textContent = 'Cast';
+      sec.appendChild(castLabel);
+    }
+    const castRow = document.createElement('div');
+    castRow.className = 'detail-cast-row';
+    d.cast.forEach(member => {
+      const card = document.createElement('div');
+      card.className = 'detail-cast-card';
+      if (member.profile_path) {
+        const img = document.createElement('img');
+        img.src = `${TMDB_PROFILE_BASE}${member.profile_path}`;
+        img.alt = member.name;
+        img.className = 'detail-cast-photo';
+        img.loading = 'lazy';
+        img.onerror = () => {
+          const ph = document.createElement('div');
+          ph.className = 'detail-cast-photo-placeholder';
+          ph.textContent = member.name.charAt(0);
+          img.replaceWith(ph);
+        };
+        card.appendChild(img);
+      } else {
+        const ph = document.createElement('div');
+        ph.className = 'detail-cast-photo-placeholder';
+        ph.textContent = member.name.charAt(0);
+        card.appendChild(ph);
+      }
+      const name = document.createElement('div');
+      name.className = 'detail-cast-name';
+      name.textContent = member.name;
+      card.appendChild(name);
+      if (member.character) {
+        const char = document.createElement('div');
+        char.className = 'detail-cast-char';
+        char.textContent = member.character;
+        card.appendChild(char);
+      }
+      castRow.appendChild(card);
+    });
+    sec.appendChild(castRow);
+  }
+
+  return sec;
+}
+
+/** Build a trailers/teasers scrollable row section */
+function buildVideosSection(d) {
+  const videos = d.trailers?.length ? d.trailers : (d.teasers?.length ? d.teasers : []);
+  if (!videos.length) return null;
+
+  const label = d.trailers?.length ? 'Trailers' : 'Teasers';
+  const sec = detailSection(label);
+
+  const row = document.createElement('div');
+  row.className = 'detail-video-row';
+
+  videos.forEach(v => {
+    const card = document.createElement('div');
+    card.className = 'detail-video-card';
+
+    const iframeWrap = document.createElement('div');
+    iframeWrap.className = 'detail-video-card-embed';
+    const iframe = document.createElement('iframe');
+    iframe.src = `https://www.youtube.com/embed/${v.key}?rel=0`;
+    iframe.title = v.name;
+    iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+    iframe.allowFullscreen = true;
+    iframe.loading = 'lazy';
+    iframeWrap.appendChild(iframe);
+    card.appendChild(iframeWrap);
+
+    const meta = document.createElement('div');
+    meta.className = 'detail-video-card-meta';
+
+    const namEl = document.createElement('div');
+    namEl.className = 'detail-video-card-name';
+    namEl.textContent = v.name;
+    meta.appendChild(namEl);
+
+    const badges = document.createElement('div');
+    badges.className = 'detail-video-card-badges';
+    if (v.official) {
+      const b = document.createElement('span');
+      b.className = 'detail-video-badge detail-video-badge-official';
+      b.textContent = 'Official';
+      badges.appendChild(b);
+    }
+    if (v.iso_639_1 && v.iso_639_1 !== 'en') {
+      const b = document.createElement('span');
+      b.className = 'detail-video-badge';
+      b.textContent = v.iso_639_1.toUpperCase();
+      badges.appendChild(b);
+    }
+    if (badges.children.length) meta.appendChild(badges);
+
+    card.appendChild(meta);
+    row.appendChild(card);
+  });
+
+  sec.appendChild(row);
+  return sec;
 }
 
 /** Helper: create a section with a heading */
@@ -1309,11 +1484,11 @@ function buildTVDetailContent(d) {
     const el = document.createElement('div');
     el.className = 'detail-meta-row detail-next-air';
     const epCode = `S${String(nextEp.season).padStart(2,'0')}E${String(nextEp.number ?? '?').padStart(2,'0')}`;
-    const epTime = new Date(nextEp.airstamp).toLocaleString(undefined, {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    });
-    el.textContent = `▶ Next: ${epCode} — ${nextEp.name}  ·  ${epTime}`;
+    const epDate = new Date(nextEp.airstamp);
+    const epDateStr = epDate.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const epTimeStr = epDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const epDay    = epDate.toLocaleDateString('en-US', { weekday: 'long' }); // always English
+    el.textContent = `▶ Next: ${epCode} — ${nextEp.name}  ·  ${epDateStr}, ${epDay} at ${epTimeStr}`;
     headline.appendChild(el);
   } else if (d.next_air_date) {
     // fallback to overview-level date if no episode data
@@ -1395,64 +1570,13 @@ function buildTVDetailContent(d) {
     body.appendChild(sec);
   }
 
-  // Trailer / teaser
-  const videos = d.trailers?.length ? d.trailers : (d.teasers?.length ? d.teasers : []);
-  const officialVideo = videos.find(v => v.official) || videos[0];
-  if (officialVideo) {
-    const sec = detailSection(d.trailers?.length ? 'Trailer' : 'Teaser');
-    const wrap = document.createElement('div');
-    wrap.className = 'detail-video-wrap';
-    const iframe = document.createElement('iframe');
-    iframe.src = `https://www.youtube.com/embed/${officialVideo.key}?rel=0`;
-    iframe.title = officialVideo.name;
-    iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
-    iframe.allowFullscreen = true;
-    iframe.className = 'detail-video-iframe';
-    wrap.appendChild(iframe);
-    sec.appendChild(wrap);
-    body.appendChild(sec);
-  }
+  // Trailers / teasers — scrollable row
+  const tvVideosSec = buildVideosSection(d);
+  if (tvVideosSec) body.appendChild(tvVideosSec);
 
-  // Cast
-  if (d.cast?.length) {
-    const sec = detailSection('Cast');
-    const castRow = document.createElement('div');
-    castRow.className = 'detail-cast-row';
-    d.cast.forEach(member => {
-      const card = document.createElement('div');
-      card.className = 'detail-cast-card';
-      if (member.profile_path) {
-        const img = document.createElement('img');
-        img.src = `${TMDB_PROFILE_BASE}${member.profile_path}`;
-        img.alt = member.name;
-        img.className = 'detail-cast-photo';
-        img.loading = 'lazy';
-        img.onerror = () => {
-          const ph = document.createElement('div');
-          ph.className = 'detail-cast-photo-placeholder';
-          ph.textContent = member.name.charAt(0);
-          img.replaceWith(ph);
-        };
-        card.appendChild(img);
-      } else {
-        const ph = document.createElement('div');
-        ph.className = 'detail-cast-photo-placeholder';
-        ph.textContent = member.name.charAt(0);
-        card.appendChild(ph);
-      }
-      const name = document.createElement('div');
-      name.className = 'detail-cast-name';
-      name.textContent = member.name;
-      card.appendChild(name);
-      const char = document.createElement('div');
-      char.className = 'detail-cast-char';
-      char.textContent = member.character;
-      card.appendChild(char);
-      castRow.appendChild(card);
-    });
-    sec.appendChild(castRow);
-    body.appendChild(sec);
-  }
+  // Directors + Cast
+  const tvCastSec = buildCastDirectorsSection(d);
+  if (tvCastSec) body.appendChild(tvCastSec);
 
   // Watch providers
   if (d.watch_providers && Object.keys(d.watch_providers).length) {
@@ -1693,6 +1817,42 @@ searchInput.addEventListener('keydown', e => {
 closeSearchBtn.addEventListener('click', () => {
   clearSearchUI();
   searchInput.value = '';
+});
+
+// ─────────────────────────────────────────────────────────────
+// Stremio sync
+// ─────────────────────────────────────────────────────────────
+
+const stremioBtn = $('stremio-sync-btn');
+
+stremioBtn.addEventListener('click', async () => {
+  setBtnLoading(stremioBtn, true);
+
+  let res, data;
+  try {
+    res = await fetch(`${API}/sync/stremio`, {
+      method:  'POST',
+      headers: {
+        'Authorization': `Bearer ${currentPassword}`,
+        'Content-Type':  'application/json',
+      },
+    });
+    data = await res.json();
+  } catch (e) {
+    setBtnLoading(stremioBtn, false);
+    showError(watchlistError, 'Stremio sync failed. Please try again.');
+    return;
+  }
+
+  setBtnLoading(stremioBtn, false);
+
+  if (!res.ok || data?.success === false) {
+    showError(watchlistError, data?.message || 'Stremio sync failed.');
+    return;
+  }
+
+  // Refresh watchlist after sync
+  refreshWatchlist();
 });
 
 // ─────────────────────────────────────────────────────────────
