@@ -1004,7 +1004,15 @@ function buildDetailContent(d) {
     digitalEl.innerHTML = `<span class="digital-indicator digital-yes">✓ Available digitally</span>`;
   } else if (d.expected_on_digital) {
     const raw   = d.expected_on_digital;
-    const label = raw === 'Unknown(?)' ? 'Unknown' : (fmtDate(raw) ?? raw);
+    let label;
+    if (raw === 'Unknown(?)') {
+      label = 'Unknown';
+    } else {
+      const parsedDate = new Date(`${raw}T00:00:00`);
+      const dayEn = isNaN(parsedDate) ? '' : parsedDate.toLocaleDateString('en-US', { weekday: 'long' });
+      const localDate = fmtDate(raw) ?? raw;
+      label = dayEn ? `${localDate}, ${dayEn}` : localDate;
+    }
     digitalEl.innerHTML = `<span class="digital-indicator digital-pending">⏳ Expected on digital: ${label}</span>`;
   }
   if (digitalEl.innerHTML) headline.appendChild(digitalEl);
@@ -1130,9 +1138,10 @@ function buildDetailContent(d) {
   };
 
   if (d.release_date)              addRow('Release Date', fmtDate(d.release_date));
-  if (d.production_companies?.[0]) addRow('Studio', d.production_companies[0].name);
-  if (d.origin_country?.length)    addRow('Country', d.origin_country.map(fullRegion).join(', '));
-  if (d.original_language)         addRow('Language', fullLang(d.original_language));
+  if (d.age_rating)                addRow('Rating',       d.age_rating);
+  if (d.production_companies?.[0]) addRow('Studio',       d.production_companies[0].name);
+  if (d.origin_country?.length)    addRow('Country',      d.origin_country.map(fullRegion).join(', '));
+  if (d.original_language)         addRow('Language',     fullLang(d.original_language));
 
   const hasBudget  = d.budget  && d.budget  > 0;
   const hasRevenue = d.revenue && d.revenue > 0;
@@ -1706,6 +1715,9 @@ function buildTVDetailContent(d) {
   if (d.release_date)              addRow('First Aired',  fmtDate(d.release_date));
   if (d.last_air_date)             addRow('Last Aired',   fmtDate(d.last_air_date));
   if (d.next_air_date)             addRow('Next Episode', fmtDate(d.next_air_date));
+  if (d.age_rating)                addRow('Rating',       d.age_rating);
+  if (d.number_of_seasons  > 0)   addRow('Seasons',      String(d.number_of_seasons));
+  if (d.number_of_episodes > 0)   addRow('Episodes',     String(d.number_of_episodes));
   if (d.production_companies?.[0]) addRow('Studio',       d.production_companies[0].name);
   if (d.origin_country?.length)    addRow('Country',      d.origin_country.map(fullRegion).join(', '));
   if (d.original_language)         addRow('Language',     fullLang(d.original_language));
