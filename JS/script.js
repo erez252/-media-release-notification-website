@@ -592,11 +592,14 @@ function applyFiltersAndSort() {
       const popB = b.popularity ?? 0;
       return popA - popB; // lowest popularity first
     });
-  } else if (sort === 'last_air_date') {
+  } else if (sort === 'latest') {
     items.sort((a, b) => {
-      const da = a.last_air_date ?? "";
-      const db = b.last_air_date ?? "";
-      return db.localeCompare(da); // oldest added_date first
+      const da = a.last_air_date ?? (a.digital ? (a.digital_release || a.release_date || '') : '');
+      const db = b.last_air_date ?? (b.digital ? (b.digital_release || b.release_date || '') : '');
+    
+      if (!da) return 1;
+      if (!db) return -1;
+      return db.localeCompare(da);
     });
   }
 
