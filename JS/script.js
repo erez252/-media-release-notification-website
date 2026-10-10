@@ -580,6 +580,24 @@ function applyFiltersAndSort() {
       if (!db) return -1;
       return da.localeCompare(db);
     });
+  } else if (sort === 'popularity-desc') {
+    items.sort((a, b) => {
+      const popA = a.popularity ?? 0;
+      const popB = b.popularity ?? 0;
+      return popB - popA; // highest popularity first
+    });
+  } else if (sort === 'popularity-asc') {
+    items.sort((a, b) => {
+      const popA = a.popularity ?? 0;
+      const popB = b.popularity ?? 0;
+      return popA - popB; // lowest popularity first
+    });
+  } else if (sort === 'last_air_date') {
+    items.sort((a, b) => {
+      const da = a.last_air_date ?? "";
+      const db = b.last_air_date ?? "";
+      return db.localeCompare(da); // oldest added_date first
+    });
   }
 
   // Apply filters
