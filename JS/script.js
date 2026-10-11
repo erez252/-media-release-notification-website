@@ -601,6 +601,52 @@ function applyFiltersAndSort() {
       if (!db) return -1;
       return db.localeCompare(da);
     });
+  } else if (sort === 'dynamic') {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayTime = new Date(todayStr).getTime();
+    const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+
+    // Helper to find any release/air date falling within ±3 days of today
+    const getActiveWindowDate = (item) => {
+      const candidates = [
+        item.next_air_date,
+        item.last_air_date,
+        item.digital ? (item.digital_release || item.release_date) : item.release_date
+      ].filter(Boolean);
+
+      for (const dStr of candidates) {
+        const dTime = new Date(dStr).getTime();
+        if (dTime >= todayTime - threeDaysMs && dTime <= todayTime + threeDaysMs) {
+          return dStr;
+        }
+      }
+      return null;
+    };
+
+    items.sort((a, b) => {
+      const dateA = getActiveWindowDate(a);
+      const dateB = getActiveWindowDate(b);
+
+      const inWindowA = dateA !== null;
+      const inWindowB = dateB !== null;
+
+      // Priority 1: Items releasing/airing within ±3 days come first
+      if (inWindowA && !inWindowB) return -1;
+      if (!inWindowA && inWindowB) return 1;
+
+      // Sub-sort: If both are in the ±3 day window, order them chronologically
+      if (inWindowA && inWindowB) {
+        return dateA.localeCompare(dateB);
+      }
+
+      // Priority 2: Standard fallback by newest added_date
+      const addedA = a.added_date ?? '';
+      const addedB = b.added_date ?? '';
+
+      if (!addedA) return 1;
+      if (!addedB) return -1;
+      return addedB.localeCompare(addedA);
+    });
   }
 
   // Apply filters
