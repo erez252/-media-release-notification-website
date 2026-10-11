@@ -5,7 +5,7 @@
 
 const API          = 'https://media-release-notification.vercel.app/api';
 const POSTER_BASE  = 'https://image.tmdb.org/t/p/w342';
-const IGDB_BASE    = 'https://images.igdb.com/igdb/image/upload/t_cover_big/';
+const IGDB_BASE    = 'https://images.igdb.com/igdb/image/upload/t_cover_big_2x/';
 
 // Global session state — password is kept only in memory
 let currentPassword = '';
