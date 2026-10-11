@@ -104,7 +104,7 @@ function makePoster(posterPath, title, classes, mediaType) {
   if (posterPath) {
     const img = document.createElement('img');
     img.src   = mediaType === 'game'
-      ? `${IGDB_BASE}${posterPath}.jpg`
+      ? `${IGDB_BASE}${posterPath}.webp`
       : `${POSTER_BASE}${posterPath}`;
     img.alt   = title;
     img.className = classes.img;
