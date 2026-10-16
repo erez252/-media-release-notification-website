@@ -397,8 +397,8 @@ function buildWatchCard(item) {
   const btnRow = document.createElement('div');
   btnRow.className = 'watch-card-btn-row';
 
-  // Info button — movies and TV shows
-  if (item.media_type === 'movie' || item.media_type === 'tv') {
+  // Info button — movies, TV shows and games
+  if (item.media_type === 'movie' || item.media_type === 'tv' || item.media_type === 'game') {
     const infoBtn = document.createElement('button');
     infoBtn.className = 'btn btn-info-icon';
     infoBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M12 16v-4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
@@ -406,6 +406,8 @@ function buildWatchCard(item) {
     infoBtn.addEventListener('click', () => {
       if (item.media_type === 'movie') {
         openDetailOverlay(item.id, 'movie');
+      } else if (item.media_type === 'game') {
+        openDetailOverlay(item.id, 'game');
       } else {
         openDetailOverlay(item.id, 'tv', item.tvmaze_id);
       }
@@ -845,8 +847,8 @@ function buildResultCard(item) {
   const footer = document.createElement('div');
   footer.className = 'result-footer';
 
-  // More info button for movies and TV
-  if (item.media_type === 'movie' || item.media_type === 'tv') {
+  // More info button for movies, TV and games
+  if (item.media_type === 'movie' || item.media_type === 'tv' || item.media_type === 'game') {
     const infoBtn = document.createElement('button');
     infoBtn.className = 'btn btn-info-icon';
     infoBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M12 16v-4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
@@ -955,6 +957,8 @@ function openDetailOverlay(id, type = 'movie', tvmazeId = null) {
   detailPanel.scrollTop = 0;
   if (type === 'tv') {
     fetchTVDetail(id, tvmazeId);
+  } else if (type === 'game') {
+    fetchGameDetail(id);
   } else {
     fetchMovieDetail(id);
   }
@@ -1015,13 +1019,8 @@ function buildDetailContent(d) {
     } catch { return str; }
   };
 
-  // ── Backdrop ──────────────────────────────────────────────
-  if (d.backdrop_path) {
-    const backdrop = document.createElement('div');
-    backdrop.className = 'detail-hero-backdrop';
-    backdrop.style.backgroundImage = `url(${TMDB_BACKDROP_BASE}${d.backdrop_path})`;
-    detailContent.appendChild(backdrop);
-  }
+  // ── Hero media band (always rendered) ─────────────────────
+  detailContent.appendChild(buildDetailHeroMedia(d));
 
   // ── Hero section (poster + headline info) ─────────────────
   const hero = document.createElement('div');
@@ -1059,33 +1058,6 @@ function buildDetailContent(d) {
     tagEl.className = 'detail-tagline';
     tagEl.textContent = `"${d.tagline}"`;
     headline.appendChild(tagEl);
-  }
-
-  // Rating line
-  if (d.vote_average) {
-    const ratingEl = document.createElement('div');
-    ratingEl.className = 'detail-meta-row detail-rating';
-    ratingEl.textContent = `★ ${d.vote_average.toFixed(1)}  (${fmt(d.vote_count)} votes)`;
-    headline.appendChild(ratingEl);
-  }
-
-  // Runtime · Release date line
-  const runtimeDateParts = [];
-  if (d.runtime)      runtimeDateParts.push(`${Math.floor(d.runtime/60)}h ${d.runtime%60}m`);
-  if (d.release_date) runtimeDateParts.push(fmtDate(d.release_date));
-  if (runtimeDateParts.length) {
-    const rdEl = document.createElement('div');
-    rdEl.className = 'detail-meta-row';
-    rdEl.textContent = runtimeDateParts.join('  ·  ');
-    headline.appendChild(rdEl);
-  }
-
-  // Status line
-  if (d.status) {
-    const statusEl = document.createElement('div');
-    statusEl.className = 'detail-meta-row detail-status';
-    statusEl.textContent = d.status;
-    headline.appendChild(statusEl);
   }
 
   // Genres
@@ -1150,6 +1122,22 @@ function buildDetailContent(d) {
   // ── Body ──────────────────────────────────────────────────
   const body = document.createElement('div');
   body.className = 'detail-body';
+
+  // Facts strip — every headline fact grouped in one place
+  const runtimeStr = d.runtime ? `${Math.floor(d.runtime / 60)}h ${d.runtime % 60}m` : null;
+  const facts = buildQuickFacts([
+    { label: 'Score',        value: d.vote_average ? `★ ${d.vote_average.toFixed(1)}` + (d.vote_count ? ` (${fmt(d.vote_count)} votes)` : '') : null, cls: 'detail-quickfact--score' },
+    { label: 'Runtime',      value: runtimeStr },
+    { label: 'Release Date', value: fmtDate(d.release_date) },
+    { label: 'Status',       value: d.status },
+    { label: 'Age Rating',   value: d.age_rating },
+    { label: 'Studio',       value: d.production_companies?.[0]?.name },
+    { label: 'Country',      value: d.origin_country?.length ? d.origin_country.map(fullRegion).join(', ') : null },
+    { label: 'Language',     value: d.original_language ? fullLang(d.original_language) : null },
+    { label: 'Budget',       value: d.budget  > 0 ? `$${fmt(d.budget)}`  : null },
+    { label: 'Revenue',      value: d.revenue > 0 ? `$${fmt(d.revenue)}` : null },
+  ]);
+  if (facts) body.appendChild(facts);
 
   // Overview
   if (d.overview) {
@@ -1217,47 +1205,6 @@ function buildDetailContent(d) {
     });
     body.appendChild(sec);
   }
-
-  // Details section — spread out, release date first, budget+revenue side by side
-  const prodSec = detailSection('Details');
-  const detailGrid = document.createElement('div');
-  detailGrid.className = 'detail-info-grid';
-
-  // Helper to add a single info row
-  const addRow = (label, value) => {
-    const row = document.createElement('div');
-    row.className = 'detail-info-row';
-    row.innerHTML = `<span class="detail-info-label">${label}</span><span class="detail-info-value">${value}</span>`;
-    detailGrid.appendChild(row);
-  };
-
-  // Helper to add a double row (two items side by side, spanning full grid width)
-  const addDoubleRow = (label1, value1, label2, value2) => {
-    const wrap = document.createElement('div');
-    wrap.className = 'detail-info-double-row';
-    wrap.innerHTML = `
-      <div class="detail-info-row"><span class="detail-info-label">${label1}</span><span class="detail-info-value">${value1}</span></div>
-      <div class="detail-info-row"><span class="detail-info-label">${label2}</span><span class="detail-info-value">${value2}</span></div>`;
-    detailGrid.appendChild(wrap);
-  };
-
-  if (d.release_date)              addRow('Release Date', fmtDate(d.release_date));
-  if (d.age_rating)                addRow('Rating',       d.age_rating);
-  if (d.production_companies?.[0]) addRow('Studio',       d.production_companies[0].name);
-  if (d.origin_country?.length)    addRow('Country',      d.origin_country.map(fullRegion).join(', '));
-  if (d.original_language)         addRow('Language',     fullLang(d.original_language));
-
-  const hasBudget  = d.budget  && d.budget  > 0;
-  const hasRevenue = d.revenue && d.revenue > 0;
-  if (hasBudget && hasRevenue) {
-    addDoubleRow('Budget', `$${fmt(d.budget)}`, 'Revenue', `$${fmt(d.revenue)}`);
-  } else {
-    if (hasBudget)  addRow('Budget',  `$${fmt(d.budget)}`);
-    if (hasRevenue) addRow('Revenue', `$${fmt(d.revenue)}`);
-  }
-
-  prodSec.appendChild(detailGrid);
-  body.appendChild(prodSec);
 
   // Keywords
   if (d.keywords?.length) {
@@ -1442,6 +1389,55 @@ function detailSection(title) {
   return sec;
 }
 
+/**
+ * Top media band of the detail panel. Always rendered so the poster/headline
+ * keeps its overlap — falls back to the blurred poster, then to a gradient.
+ */
+function buildDetailHeroMedia(d) {
+  const band = document.createElement('div');
+  if (d.backdrop_path) {
+    band.className = 'detail-hero-backdrop';
+    band.style.backgroundImage = `url(${TMDB_BACKDROP_BASE}${d.backdrop_path})`;
+  } else if (d.poster_path) {
+    band.className = 'detail-hero-backdrop detail-hero-backdrop--poster';
+    band.style.backgroundImage = `url(${TMDB_POSTER_DETAIL}${d.poster_path})`;
+  } else {
+    band.className = 'detail-hero-backdrop detail-hero-backdrop--none';
+  }
+  return band;
+}
+
+/**
+ * Compact labeled grid of headline facts (score, runtime, dates, status…).
+ * Used by both the movie and TV detail views. `facts` items: { label, value, cls }.
+ */
+function buildQuickFacts(facts) {
+  const list = (facts || []).filter(f => f && f.value);
+  if (!list.length) return null;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'detail-quickfacts';
+
+  list.forEach(f => {
+    const item = document.createElement('div');
+    item.className = 'detail-quickfact' + (f.cls ? ` ${f.cls}` : '');
+
+    const label = document.createElement('span');
+    label.className = 'detail-quickfact-label';
+    label.textContent = f.label;
+
+    const value = document.createElement('span');
+    value.className = 'detail-quickfact-value';
+    value.textContent = f.value;
+
+    item.appendChild(label);
+    item.appendChild(value);
+    wrap.appendChild(item);
+  });
+
+  return wrap;
+}
+
 // ─────────────────────────────────────────────────────────────
 // TV detail overlay
 // ─────────────────────────────────────────────────────────────
@@ -1516,13 +1512,8 @@ function buildTVDetailContent(d) {
     catch { return str; }
   };
 
-  // ── Backdrop ──────────────────────────────────────────────
-  if (d.backdrop_path) {
-    const backdrop = document.createElement('div');
-    backdrop.className = 'detail-hero-backdrop';
-    backdrop.style.backgroundImage = `url(${TMDB_BACKDROP_BASE}${d.backdrop_path})`;
-    detailContent.appendChild(backdrop);
-  }
+  // ── Hero media band (always rendered) ─────────────────────
+  detailContent.appendChild(buildDetailHeroMedia(d));
 
   // ── Hero ──────────────────────────────────────────────────
   const hero = document.createElement('div');
@@ -1558,65 +1549,6 @@ function buildTVDetailContent(d) {
     tagEl.className = 'detail-tagline';
     tagEl.textContent = `"${d.tagline}"`;
     headline.appendChild(tagEl);
-  }
-
-  if (d.vote_average) {
-    const ratingEl = document.createElement('div');
-    ratingEl.className = 'detail-meta-row detail-rating';
-    ratingEl.textContent = `★ ${d.vote_average.toFixed(1)}  (${(d.vote_count||0).toLocaleString('en-US')} votes)`;
-    headline.appendChild(ratingEl);
-  }
-
-  // Runtime: use d.runtime if valid number, otherwise average episode runtimes
-  let rtVal = Array.isArray(d.runtime) ? null : (typeof d.runtime === 'number' && d.runtime > 0 ? d.runtime : null);
-  if (!rtVal && d.episodes?.length) {
-    const rts = d.episodes.map(e => e.runtime).filter(r => typeof r === 'number' && r > 0);
-    if (rts.length) rtVal = Math.round(rts.reduce((a, b) => a + b, 0) / rts.length);
-  }
-  const airParts = [];
-  if (rtVal) airParts.push(`${rtVal}m / ep`);
-  if (d.release_date) airParts.push(`First aired ${fmtDate(d.release_date)}`);
-  if (airParts.length) {
-    const el = document.createElement('div');
-    el.className = 'detail-meta-row';
-    el.textContent = airParts.join('  ·  ');
-    headline.appendChild(el);
-  }
-
-  // Last air date
-  if (d.last_air_date) {
-    const el = document.createElement('div');
-    el.className = 'detail-meta-row detail-status';
-    el.textContent = `Last aired ${fmtDate(d.last_air_date)}`;
-    headline.appendChild(el);
-  }
-
-  // Next episode from episodes airstamp (more precise — includes time)
-  const nextEp = d.episodes?.find(e => e.airstamp && new Date(e.airstamp) > new Date());
-  if (nextEp) {
-    const el = document.createElement('div');
-    el.className = 'detail-meta-row detail-next-air';
-    const epCode = `S${String(nextEp.season).padStart(2,'0')}E${String(nextEp.number ?? '?').padStart(2,'0')}`;
-    const epDate = new Date(nextEp.airstamp);
-    const epDateStr = epDate.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const epTimeStr = epDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-    const epDay    = epDate.toLocaleDateString('en-US', { weekday: 'long' }); // always English
-    el.textContent = `▶ Next: ${epCode} — ${nextEp.name}  ·  ${epDateStr}, ${epDay} at ${epTimeStr}`;
-    headline.appendChild(el);
-  } else if (d.next_air_date) {
-    // fallback to overview-level date if no episode data
-    const el = document.createElement('div');
-    el.className = 'detail-meta-row detail-next-air';
-    el.textContent = `▶ Next episode ${fmtDate(d.next_air_date)}`;
-    headline.appendChild(el);
-  }
-
-  // Status
-  if (d.status) {
-    const el = document.createElement('div');
-    el.className = 'detail-meta-row detail-status';
-    el.textContent = d.status;
-    headline.appendChild(el);
   }
 
   if (d.genres?.length) {
@@ -1672,6 +1604,44 @@ function buildTVDetailContent(d) {
   // ── Body ──────────────────────────────────────────────────
   const body = document.createElement('div');
   body.className = 'detail-body';
+
+  // Facts strip — every headline fact grouped in one place
+  let rtVal = Array.isArray(d.runtime) ? null : (typeof d.runtime === 'number' && d.runtime > 0 ? d.runtime : null);
+  if (!rtVal && d.episodes?.length) {
+    const rts = d.episodes.map(e => e.runtime).filter(r => typeof r === 'number' && r > 0);
+    if (rts.length) rtVal = Math.round(rts.reduce((a, b) => a + b, 0) / rts.length);
+  }
+
+  const nextEp = d.episodes?.find(e => e.airstamp && new Date(e.airstamp) > new Date());
+  let nextText = null;
+  if (nextEp) {
+    const epCode = `S${String(nextEp.season).padStart(2,'0')}E${String(nextEp.number ?? '?').padStart(2,'0')}`;
+    const epDate = new Date(nextEp.airstamp);
+    const epDateStr = epDate.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const epTimeStr = epDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const epDay = epDate.toLocaleDateString('en-US', { weekday: 'long' }); // always English
+    nextText = `▶ ${epCode} — ${nextEp.name}  ·  ${epDateStr}, ${epDay} at ${epTimeStr}`;
+  } else if (d.next_air_date) {
+    nextText = `▶ Next episode ${fmtDate(d.next_air_date)}`;
+  }
+
+  const facts = buildQuickFacts([
+    { label: 'Score',        value: d.vote_average ? `★ ${d.vote_average.toFixed(1)}` + (d.vote_count ? ` (${(d.vote_count).toLocaleString('en-US')} votes)` : '') : null, cls: 'detail-quickfact--score' },
+    { label: 'Status',       value: d.status },
+    { label: 'Ep. Runtime',  value: rtVal ? `${rtVal}m / ep` : null },
+    { label: 'Seasons',      value: d.number_of_seasons  > 0 ? String(d.number_of_seasons)  : null },
+    { label: 'Episodes',     value: d.number_of_episodes > 0 ? String(d.number_of_episodes) : null },
+    { label: 'First Aired',  value: fmtDate(d.release_date) },
+    { label: 'Last Aired',   value: fmtDate(d.last_air_date) },
+    { label: 'Next Episode', value: nextText, cls: 'detail-quickfact--next detail-quickfact--wide' },
+    { label: 'Age Rating',   value: d.age_rating },
+    { label: 'Studio',       value: d.production_companies?.[0]?.name },
+    { label: 'Country',      value: d.origin_country?.length ? d.origin_country.map(fullRegion).join(', ') : null },
+    { label: 'Language',     value: d.original_language ? fullLang(d.original_language) : null },
+    { label: 'Budget',       value: d.budget  > 0 ? `$${(d.budget).toLocaleString('en-US')}`  : null },
+    { label: 'Revenue',      value: d.revenue > 0 ? `$${(d.revenue).toLocaleString('en-US')}` : null },
+  ]);
+  if (facts) body.appendChild(facts);
 
   // Overview
   if (d.overview) {
@@ -1737,6 +1707,10 @@ function buildTVDetailContent(d) {
 
     const seasons = [...new Set(d.episodes.map(e => e.season))].sort((a, b) => a - b);
     const activeSeason = defaultSeason(d.episodes, d.status);
+    // Used as the thumbnail for episodes without their own image
+    const epFallback = d.backdrop_path
+      ? `${TMDB_BACKDROP_BASE}${d.backdrop_path}`
+      : (d.poster_path ? `${TMDB_POSTER_DETAIL}${d.poster_path}` : null);
 
     // Season selector
     const seasonNav = document.createElement('div');
@@ -1778,7 +1752,7 @@ function buildTVDetailContent(d) {
       toggleBtn.textContent = epExpanded ? 'Hide episodes ▴' : 'Show episodes ▾';
       // Render episodes lazily on first expand
       if (epExpanded && !epRendered) {
-        renderEpisodes(episodeGrid, d.episodes, activeSeason, fmtStamp);
+        renderEpisodes(episodeGrid, d.episodes, activeSeason, fmtStamp, epFallback);
         epRendered = true;
       }
       // Update season pill clicks to re-render into the now-visible grid
@@ -1788,7 +1762,7 @@ function buildTVDetailContent(d) {
     pillGroup.querySelectorAll('.pill').forEach(btn => {
       btn.addEventListener('click', () => {
         const s = Number(btn.dataset.season);
-        renderEpisodes(episodeGrid, d.episodes, s, fmtStamp);
+        renderEpisodes(episodeGrid, d.episodes, s, fmtStamp, epFallback);
         epRendered = true;
       });
     });
@@ -1798,44 +1772,6 @@ function buildTVDetailContent(d) {
 
     body.appendChild(sec);
   }
-
-  // Details grid
-  const prodSec = detailSection('Details');
-  const detailGrid = document.createElement('div');
-  detailGrid.className = 'detail-info-grid';
-  const addRow = (label, value) => {
-    const row = document.createElement('div');
-    row.className = 'detail-info-row';
-    row.innerHTML = `<span class="detail-info-label">${label}</span><span class="detail-info-value">${value}</span>`;
-    detailGrid.appendChild(row);
-  };
-  const addDoubleRow = (l1, v1, l2, v2) => {
-    const wrap = document.createElement('div');
-    wrap.className = 'detail-info-double-row';
-    wrap.innerHTML = `<div class="detail-info-row"><span class="detail-info-label">${l1}</span><span class="detail-info-value">${v1}</span></div><div class="detail-info-row"><span class="detail-info-label">${l2}</span><span class="detail-info-value">${v2}</span></div>`;
-    detailGrid.appendChild(wrap);
-  };
-
-  if (d.release_date)              addRow('First Aired',  fmtDate(d.release_date));
-  if (d.last_air_date)             addRow('Last Aired',   fmtDate(d.last_air_date));
-  if (d.next_air_date)             addRow('Next Episode', fmtDate(d.next_air_date));
-  if (d.age_rating)                addRow('Rating',       d.age_rating);
-  if (d.number_of_seasons  > 0)   addRow('Seasons',      String(d.number_of_seasons));
-  if (d.number_of_episodes > 0)   addRow('Episodes',     String(d.number_of_episodes));
-  if (d.production_companies?.[0]) addRow('Studio',       d.production_companies[0].name);
-  if (d.origin_country?.length)    addRow('Country',      d.origin_country.map(fullRegion).join(', '));
-  if (d.original_language)         addRow('Language',     fullLang(d.original_language));
-  const hasBudget  = d.budget  && d.budget  > 0;
-  const hasRevenue = d.revenue && d.revenue > 0;
-  if (hasBudget && hasRevenue) {
-    addDoubleRow('Budget', `$${(d.budget).toLocaleString('en-US')}`, 'Revenue', `$${(d.revenue).toLocaleString('en-US')}`);
-  } else {
-    if (hasBudget)  addRow('Budget',  `$${(d.budget).toLocaleString('en-US')}`);
-    if (hasRevenue) addRow('Revenue', `$${(d.revenue).toLocaleString('en-US')}`);
-  }
-
-  prodSec.appendChild(detailGrid);
-  body.appendChild(prodSec);
 
   // Keywords
   if (d.keywords?.length) {
@@ -1856,7 +1792,7 @@ function buildTVDetailContent(d) {
 }
 
 /** Render episode cards for a given season into the container. Pure client-side — no API call. */
-function renderEpisodes(container, allEpisodes, season, fmtStamp) {
+function renderEpisodes(container, allEpisodes, season, fmtStamp, fallbackImg) {
   container.innerHTML = '';
   const eps = allEpisodes.filter(e => e.season === season);
   eps.forEach(ep => {
@@ -1872,10 +1808,10 @@ function renderEpisodes(container, allEpisodes, season, fmtStamp) {
       img.alt = ep.name;
       img.className = 'detail-ep-thumb';
       img.loading = 'lazy';
-      img.onerror = () => { img.replaceWith(makeThumbnailPlaceholder()); };
+      img.onerror = () => { img.replaceWith(makeThumbnailPlaceholder(fallbackImg)); };
       thumbWrap.appendChild(img);
     } else {
-      thumbWrap.appendChild(makeThumbnailPlaceholder());
+      thumbWrap.appendChild(makeThumbnailPlaceholder(fallbackImg));
     }
     card.appendChild(thumbWrap);
 
@@ -1914,10 +1850,527 @@ function renderEpisodes(container, allEpisodes, season, fmtStamp) {
   });
 }
 
-function makeThumbnailPlaceholder() {
+function makeThumbnailPlaceholder(fallbackImg) {
   const div = document.createElement('div');
   div.className = 'detail-ep-thumb-placeholder';
+  if (fallbackImg) {
+    div.classList.add('detail-ep-thumb-placeholder--fallback');
+    div.style.backgroundImage = `url(${fallbackImg})`;
+  }
   return div;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Game detail overlay (IGDB-backed)
+// ─────────────────────────────────────────────────────────────
+
+const IGDB_BACKDROP_BASE = 'https://images.igdb.com/igdb/image/upload/t_1080p/';
+const IGDB_LOGO_BASE     = 'https://images.igdb.com/igdb/image/upload/t_logo_med/';
+
+/** A relation-group cover entry (bundles, dlcs, expansions, ports, remakes, remasters). */
+function gameCoverCard(entry, fmtDate) {
+  const card = document.createElement('div');
+  card.className = 'detail-rel-card';
+
+  const coverWrap = document.createElement('div');
+  coverWrap.className = 'detail-rel-cover-wrap';
+  if (entry.cover) {
+    const img = document.createElement('img');
+    img.src = `${IGDB_BASE}${entry.cover}.webp`;
+    img.alt = entry.name || '';
+    img.className = 'detail-rel-cover';
+    img.loading = 'lazy';
+    img.onerror = () => img.replaceWith(makeGamePlaceholder('detail-rel-cover-placeholder'));
+    coverWrap.appendChild(img);
+  } else {
+    coverWrap.appendChild(makeGamePlaceholder('detail-rel-cover-placeholder'));
+  }
+  card.appendChild(coverWrap);
+
+  const name = document.createElement('div');
+  name.className = 'detail-rel-name';
+  name.textContent = entry.name || 'Untitled';
+  card.appendChild(name);
+
+  const date = fmtDate(entry.first_release_date);
+  if (date) {
+    const dateEl = document.createElement('div');
+    dateEl.className = 'detail-rel-date';
+    dateEl.textContent = date;
+    card.appendChild(dateEl);
+  }
+
+  return card;
+}
+
+/** Generic empty-image placeholder for the game page. */
+function makeGamePlaceholder(cls) {
+  const div = document.createElement('div');
+  div.className = cls;
+  return div;
+}
+
+/** Horizontal scrollable row of game relation covers. */
+function buildGameRelationSection(title, items, fmtDate) {
+  if (!items?.length) return null;
+  const sec = detailSection(title);
+  const row = document.createElement('div');
+  row.className = 'detail-rel-grid';
+  items.forEach(it => row.appendChild(gameCoverCard(it, fmtDate)));
+  sec.appendChild(row);
+  return sec;
+}
+
+/** Chips built from an array of {name} objects or plain strings. */
+function buildGameChips(items, chipClass = 'detail-keyword-tag') {
+  const wrap = document.createElement('div');
+  wrap.className = 'detail-keywords';
+  items.forEach(raw => {
+    const label = typeof raw === 'string' ? raw : raw?.name;
+    if (!label) return;
+    const tag = document.createElement('span');
+    tag.className = chipClass;
+    tag.textContent = label;
+    wrap.appendChild(tag);
+  });
+  return wrap;
+}
+
+async function fetchGameDetail(gameId) {
+  const { ok, data } = await apiPost('/info/game', {
+    password: currentPassword,
+    gameid:   String(gameId),
+  });
+
+  hide(detailLoading);
+
+  if (!ok || data?.success === false) {
+    showError(detailError, data?.message || 'Could not load game details. Please try again.');
+    return;
+  }
+
+  buildGameDetailContent(data);
+  show(detailContent);
+}
+
+function buildGameDetailContent(d) {
+  detailContent.innerHTML = '';
+
+  const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+  const fullRegion  = c => { try { return regionNames.of(c); } catch { return c; } };
+  const fmtDate     = str => {
+    if (!str) return null;
+    try { return new Date(`${str}T00:00:00`).toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' }); }
+    catch { return str; }
+  };
+
+  // ── Hero media band (IGDB backdrop → blurred cover → gradient) ──
+  const band = document.createElement('div');
+  if (d.backdrop_path) {
+    band.className = 'detail-hero-backdrop';
+    band.style.backgroundImage = `url(${IGDB_BACKDROP_BASE}${d.backdrop_path}.webp)`;
+  } else if (d.poster_path) {
+    band.className = 'detail-hero-backdrop detail-hero-backdrop--poster';
+    band.style.backgroundImage = `url(${IGDB_BASE}${d.poster_path}.webp)`;
+  } else {
+    band.className = 'detail-hero-backdrop detail-hero-backdrop--none';
+  }
+  detailContent.appendChild(band);
+
+  // ── Hero: cover + headline ──
+  const hero = document.createElement('div');
+  hero.className = 'detail-hero';
+
+  const posterWrap = document.createElement('div');
+  posterWrap.className = 'detail-poster-wrap';
+  if (d.poster_path) {
+    const img = document.createElement('img');
+    img.src = `${IGDB_BASE}${d.poster_path}.webp`;
+    img.alt = d.title;
+    img.className = 'detail-poster';
+    img.loading = 'eager';
+    posterWrap.appendChild(img);
+  } else {
+    const ph = document.createElement('div');
+    ph.className = 'detail-poster-placeholder';
+    ph.textContent = 'No image';
+    posterWrap.appendChild(ph);
+  }
+  hero.appendChild(posterWrap);
+
+  const headline = document.createElement('div');
+  headline.className = 'detail-headline';
+
+  const titleEl = document.createElement('h2');
+  titleEl.className = 'detail-title';
+  titleEl.textContent = d.title;
+  headline.appendChild(titleEl);
+
+  if (d.tagline) {
+    const tagEl = document.createElement('p');
+    tagEl.className = 'detail-tagline';
+    tagEl.textContent = `"${d.tagline}"`;
+    headline.appendChild(tagEl);
+  }
+
+  if (d.genres?.length) {
+    const genreWrap = document.createElement('div');
+    genreWrap.className = 'detail-genres';
+    d.genres.forEach(g => {
+      const tag = document.createElement('span');
+      tag.className = 'genre-tag';
+      tag.textContent = g.name;
+      genreWrap.appendChild(tag);
+    });
+    headline.appendChild(genreWrap);
+  }
+
+  // External links — Official Site, IGDB
+  const linksRow = document.createElement('div');
+  linksRow.className = 'detail-links';
+  const addExtLink = (href, label) => {
+    const a = document.createElement('a');
+    a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.className = 'detail-ext-link'; a.textContent = label;
+    linksRow.appendChild(a);
+  };
+  if (d.homepage)  addExtLink(d.homepage, 'Official Site');
+  if (d.igdb_url)  addExtLink(d.igdb_url, 'IGDB');
+  if (linksRow.children.length) headline.appendChild(linksRow);
+
+  hero.appendChild(headline);
+  detailContent.appendChild(hero);
+
+  // ── Body ──
+  const body = document.createElement('div');
+  body.className = 'detail-body';
+
+  // Facts strip
+  const languages = Array.isArray(d.original_language) ? d.original_language : [];
+  const facts = buildQuickFacts([
+    { label: 'Score',        value: d.vote_average ? `★ ${d.vote_average.toFixed(1)}` + (d.vote_count ? ` (${fmt(d.vote_count)} votes)` : '') : null, cls: 'detail-quickfact--score' },
+    { label: 'Release Date', value: fmtDate(d.release_date) },
+    { label: 'Status',       value: d.status },
+    { label: 'Game Type',    value: d.game_type },
+    { label: 'Country',      value: d.origin_country?.length ? d.origin_country.map(fullRegion).join(', ') : null },
+    { label: 'Languages',    value: languages.length ? languages.join(', ') : null, cls: 'detail-quickfact--wide' },
+  ]);
+  if (facts) body.appendChild(facts);
+
+  // Franchise — linked entries
+  if (d.franchise?.length) {
+    const sec = detailSection('Franchise');
+    const wrap = document.createElement('div');
+    wrap.className = 'detail-linkrow';
+    d.franchise.forEach(f => {
+      if (!f.name) return;
+      const a = document.createElement('a');
+      a.className = 'detail-franchise-chip';
+      a.href = f.url || '#'; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.textContent = f.name;
+      wrap.appendChild(a);
+    });
+    sec.appendChild(wrap);
+    body.appendChild(sec);
+  }
+
+  // Overview
+  if (d.overview) {
+    const sec = detailSection('Overview');
+    const p = document.createElement('p');
+    p.className = 'detail-overview';
+    p.textContent = d.overview;
+    sec.appendChild(p);
+    body.appendChild(sec);
+  }
+
+  // Storyline
+  if (d.storyline) {
+    const sec = detailSection('Storyline');
+    const p = document.createElement('p');
+    p.className = 'detail-overview';
+    p.textContent = d.storyline;
+    sec.appendChild(p);
+    body.appendChild(sec);
+  }
+
+  // Videos — scrollable row of all videos
+  if (d.videos?.length) {
+    const sec = detailSection('Videos');
+    const row = document.createElement('div');
+    row.className = 'detail-video-row';
+    d.videos.forEach(v => {
+      if (!v.video_id) return;
+      const card = document.createElement('div');
+      card.className = 'detail-video-card';
+
+      const iframeWrap = document.createElement('div');
+      iframeWrap.className = 'detail-video-card-embed';
+      const iframe = document.createElement('iframe');
+      iframe.src = `https://www.youtube.com/embed/${v.video_id}?rel=0`;
+      iframe.title = v.name || 'Video';
+      iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+      iframe.allowFullscreen = true;
+      iframe.loading = 'lazy';
+      iframeWrap.appendChild(iframe);
+      card.appendChild(iframeWrap);
+
+      const meta = document.createElement('div');
+      meta.className = 'detail-video-card-meta';
+      const nameEl = document.createElement('div');
+      nameEl.className = 'detail-video-card-name';
+      nameEl.textContent = v.name || 'Video';
+      meta.appendChild(nameEl);
+      card.appendChild(meta);
+
+      row.appendChild(card);
+    });
+    sec.appendChild(row);
+    body.appendChild(sec);
+  }
+
+  // Involved companies — grouped by role
+  if (d.involved_companies?.length) {
+    const roles = [
+      { key: 'developer',  label: 'Developer' },
+      { key: 'publisher',  label: 'Publisher' },
+      { key: 'porting',    label: 'Porting' },
+      { key: 'supporting', label: 'Supporting' },
+    ];
+    const sec = detailSection('Companies');
+    let any = false;
+
+    roles.forEach(role => {
+      const companies = d.involved_companies.filter(c => c[role.key]);
+      if (!companies.length) return;
+      any = true;
+
+      const label = document.createElement('div');
+      label.className = 'detail-section-sub-label';
+      label.textContent = role.label;
+      sec.appendChild(label);
+
+      const row = document.createElement('div');
+      row.className = 'detail-company-row';
+      companies.forEach(c => {
+        const co = c.company || {};
+        const card = document.createElement('a');
+        card.className = 'detail-company-card';
+        if (co.url) { card.href = co.url; card.target = '_blank'; card.rel = 'noopener noreferrer'; }
+
+        const logoWrap = document.createElement('div');
+        logoWrap.className = 'detail-company-logo-wrap';
+        if (co.logo_path) {
+          const img = document.createElement('img');
+          img.src = `${IGDB_LOGO_BASE}${co.logo_path}.webp`;
+          img.alt = co.name || '';
+          img.className = 'detail-company-logo';
+          img.loading = 'lazy';
+          img.onerror = () => img.remove();
+          logoWrap.appendChild(img);
+        }
+        card.appendChild(logoWrap);
+
+        const name = document.createElement('div');
+        name.className = 'detail-company-name';
+        name.textContent = co.name || 'Unknown';
+        card.appendChild(name);
+
+        if (co.country) {
+          const country = document.createElement('div');
+          country.className = 'detail-company-country';
+          country.textContent = fullRegion(co.country);
+          card.appendChild(country);
+        }
+
+        row.appendChild(card);
+      });
+      sec.appendChild(row);
+    });
+
+    if (any) body.appendChild(sec);
+  }
+
+  // Age ratings
+  if (d.age_ratings?.length) {
+    const sec = detailSection('Age Ratings');
+    const wrap = document.createElement('div');
+    wrap.className = 'detail-ageratings';
+    d.age_ratings.forEach(ar => {
+      if (!ar?.organization && !ar?.rating) return;
+      const pill = document.createElement('span');
+      pill.className = 'detail-agerating';
+      const org = document.createElement('span');
+      org.className = 'detail-agerating-org';
+      org.textContent = ar.organization || '';
+      const val = document.createElement('span');
+      val.className = 'detail-agerating-val';
+      val.textContent = ar.rating || '';
+      pill.appendChild(org);
+      pill.appendChild(val);
+      wrap.appendChild(pill);
+    });
+    sec.appendChild(wrap);
+    body.appendChild(sec);
+  }
+
+  // Game modes
+  if (d.game_modes?.length) {
+    const sec = detailSection('Game Modes');
+    sec.appendChild(buildGameChips(d.game_modes));
+    body.appendChild(sec);
+  }
+
+  // Player perspectives
+  if (d.player_perspectives?.length) {
+    const sec = detailSection('Player Perspectives');
+    sec.appendChild(buildGameChips(d.player_perspectives));
+    body.appendChild(sec);
+  }
+
+  // Platforms
+  if (d.platforms?.length) {
+    const sec = detailSection('Platforms');
+    const wrap = document.createElement('div');
+    wrap.className = 'detail-platform-row';
+    d.platforms.forEach(p => {
+      const chip = document.createElement('span');
+      chip.className = 'detail-platform-chip';
+      if (p.platform_logo) {
+        const img = document.createElement('img');
+        img.src = `${IGDB_LOGO_BASE}${p.platform_logo}.webp`;
+        img.alt = p.abbreviation || '';
+        img.className = 'detail-platform-logo';
+        img.loading = 'lazy';
+        img.onerror = () => img.remove();
+        chip.appendChild(img);
+      }
+      const label = document.createElement('span');
+      label.textContent = p.abbreviation || '';
+      chip.appendChild(label);
+      wrap.appendChild(chip);
+    });
+    sec.appendChild(wrap);
+    body.appendChild(sec);
+  }
+
+  // Game engines
+  if (d.game_engines?.length) {
+    const sec = detailSection('Game Engines');
+    const row = document.createElement('div');
+    row.className = 'detail-engine-row';
+    d.game_engines.forEach(e => {
+      const card = document.createElement('div');
+      card.className = 'detail-engine-card';
+      if (e.image_path) {
+        const img = document.createElement('img');
+        img.src = `${IGDB_LOGO_BASE}${e.image_path}.webp`;
+        img.alt = e.name || '';
+        img.className = 'detail-engine-logo';
+        img.loading = 'lazy';
+        img.onerror = () => img.remove();
+        card.appendChild(img);
+      }
+      const name = document.createElement('div');
+      name.className = 'detail-engine-name';
+      name.textContent = e.name || '';
+      card.appendChild(name);
+      row.appendChild(card);
+    });
+    sec.appendChild(row);
+    body.appendChild(sec);
+  }
+
+  // Parent game
+  if (d.parent_game?.name) {
+    const sec = detailSection('Parent Game');
+    const wrap = document.createElement('div');
+    wrap.className = 'detail-parent-wrap';
+
+    const row = document.createElement('div');
+    row.className = 'detail-rel-grid';
+    row.appendChild(gameCoverCard({
+      cover: d.parent_game.cover?.image_id,
+      name:  d.parent_game.name,
+    }, fmtDate));
+    wrap.appendChild(row);
+
+    const actions = document.createElement('div');
+    actions.className = 'detail-parent-actions';
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'btn btn-add';
+    addBtn.innerHTML = `<span class="btn-text">+ Add</span><span class="btn-spinner spinner hidden" aria-hidden="true"></span>`;
+    addBtn.setAttribute('aria-label', `Add ${d.parent_game.name} to watchlist`);
+
+    const feedbackEl = document.createElement('div');
+    addBtn.addEventListener('click', () => handleAdd(d.parent_game.id, 'game', addBtn, feedbackEl));
+
+    actions.appendChild(addBtn);
+    actions.appendChild(feedbackEl);
+    wrap.appendChild(actions);
+
+    sec.appendChild(wrap);
+    body.appendChild(sec);
+  }
+
+  // Stores
+  if (d.stores?.length) {
+    const sec = detailSection('Stores');
+    const wrap = document.createElement('div');
+    wrap.className = 'detail-linkrow';
+    d.stores.forEach(s => {
+      if (!s.name) return;
+      const a = document.createElement('a');
+      a.className = 'detail-store-chip';
+      a.href = s.url || '#'; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.textContent = s.name;
+      wrap.appendChild(a);
+    });
+    sec.appendChild(wrap);
+    body.appendChild(sec);
+  }
+
+  // Links (social / web)
+  if (d.links?.length) {
+    const sec = detailSection('Links');
+    const wrap = document.createElement('div');
+    wrap.className = 'detail-linkrow';
+    d.links.forEach(l => {
+      if (!l.name) return;
+      const a = document.createElement('a');
+      a.className = 'detail-link-chip';
+      a.href = l.url || '#'; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      // IGDB labels Twitter as "Twitter" — display it as "X"
+      a.textContent = l.name === 'Twitter' ? 'X' : l.name;
+      wrap.appendChild(a);
+    });
+    sec.appendChild(wrap);
+    body.appendChild(sec);
+  }
+
+  // Keywords
+  if (d.keywords?.length) {
+    const sec = detailSection('Keywords');
+    sec.appendChild(buildGameChips(d.keywords));
+    body.appendChild(sec);
+  }
+
+  // Related content — one horizontal cover row per non-empty group
+  const relationGroups = [
+    { key: 'bundles',    label: 'Bundles' },
+    { key: 'dlcs',       label: 'DLCs' },
+    { key: 'expansions', label: 'Expansions' },
+    { key: 'ports',      label: 'Ports' },
+    { key: 'remakes',    label: 'Remakes' },
+    { key: 'remasters',  label: 'Remasters' },
+  ];
+  relationGroups.forEach(g => {
+    const sec = buildGameRelationSection(g.label, d[g.key], fmtDate);
+    if (sec) body.appendChild(sec);
+  });
+
+  detailContent.appendChild(body);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2140,10 +2593,11 @@ function calTooltip(item) {
   return parts.filter(Boolean).join(' — ');
 }
 
-/** Reuse the existing detail overlay for movies / shows; games aren't clickable. */
+/** Reuse the existing detail overlay for movies / shows / games. */
 function openCalendarItem(item) {
   if (item.media_type === 'movie')      openDetailOverlay(item.id, 'movie');
   else if (item.media_type === 'tv')    openDetailOverlay(item.id, 'tv', item.tvmaze_id);
+  else if (item.media_type === 'game')  openDetailOverlay(item.id, 'game');
 }
 
 function relativeDayLabel(date) {
@@ -2276,10 +2730,9 @@ function renderMonthView(items) {
 }
 
 function buildCalendarChip(item) {
-  const isGame = item.media_type === 'game';
-  const chip   = document.createElement(isGame ? 'div' : 'button');
-  chip.className = `cal-chip cal-chip--${item.media_type}` + (isGame ? ' cal-chip--static' : '');
-  if (!isGame) chip.type = 'button';
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.className = `cal-chip cal-chip--${item.media_type}`;
   chip.title = calTooltip(item);
 
   chip.appendChild(calPoster(item, 'cal-chip-poster'));
@@ -2289,7 +2742,7 @@ function buildCalendarChip(item) {
   title.textContent = item.media_type === 'tv' ? `${item.title} ${episodeCode(item)}` : item.title;
   chip.appendChild(title);
 
-  if (!isGame) chip.addEventListener('click', () => openCalendarItem(item));
+  chip.addEventListener('click', () => openCalendarItem(item));
   return chip;
 }
 
@@ -2342,9 +2795,8 @@ function renderListView(items) {
 }
 
 function buildCalendarRow(item) {
-  const isGame = item.media_type === 'game';
-  const row    = document.createElement('div');
-  row.className = `cal-list-item` + (isGame ? '' : ' cal-list-item--clickable');
+  const row = document.createElement('div');
+  row.className = 'cal-list-item cal-list-item--clickable';
 
   row.appendChild(calPoster(item, 'cal-list-poster'));
 
@@ -2379,7 +2831,7 @@ function buildCalendarRow(item) {
   info.appendChild(meta);
   row.appendChild(info);
 
-  if (!isGame) row.addEventListener('click', () => openCalendarItem(item));
+  row.addEventListener('click', () => openCalendarItem(item));
   return row;
 }
 
@@ -2627,24 +3079,23 @@ function buildRecommendationCard(item) {
     body.appendChild(genreWrap);
   }
 
-  // Footer actions — details (movie/tv) + add to watchlist
+  // Footer actions — details (movie/tv/game) + add to watchlist
   const footer = document.createElement('div');
   footer.className = 'rec-card-footer';
 
   const btnRow = document.createElement('div');
   btnRow.className = 'rec-card-btn-row';
 
-  if (!isGame) {
-    const infoBtn = document.createElement('button');
-    infoBtn.className = 'btn btn-info-icon';
-    infoBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M12 16v-4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
-    infoBtn.setAttribute('aria-label', `More info about ${item.title}`);
-    infoBtn.addEventListener('click', () => {
-      if (item.media_type === 'movie') openDetailOverlay(item.id, 'movie');
-      else                             openDetailOverlay(item.id, 'tv');
-    });
-    btnRow.appendChild(infoBtn);
-  }
+  const infoBtn = document.createElement('button');
+  infoBtn.className = 'btn btn-info-icon';
+  infoBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M12 16v-4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+  infoBtn.setAttribute('aria-label', `More info about ${item.title}`);
+  infoBtn.addEventListener('click', () => {
+    if (item.media_type === 'movie')      openDetailOverlay(item.id, 'movie');
+    else if (item.media_type === 'game')  openDetailOverlay(item.id, 'game');
+    else                                  openDetailOverlay(item.id, 'tv');
+  });
+  btnRow.appendChild(infoBtn);
 
   const addBtn = document.createElement('button');
   addBtn.className = 'btn btn-add';
