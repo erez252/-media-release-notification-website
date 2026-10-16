@@ -49,6 +49,13 @@
           <span class="brand-name">Watchlist</span>
         </div>
 
+        <!-- Main view toggle -->
+        <div class="view-toggle" role="group" aria-label="Main view">
+          <button class="pill active" data-view="watchlist">Watchlist</button>
+          <button class="pill" data-view="calendar">Calendar</button>
+          <button class="pill" data-view="recommendations">Recommendations</button>
+        </div>
+
         <!-- TMDB Search -->
         <div class="search-bar" role="search">
           <div class="search-type-pills" role="group" aria-label="Search type">
@@ -206,6 +213,111 @@
 
         <p id="watchlist-empty" class="empty-state hidden">Your watchlist is empty. Search for something to add!</p>
         <p id="filter-empty" class="empty-state hidden">No titles match your filter.</p>
+      </section>
+
+      <!-- Calendar Section -->
+      <section id="calendar-section" class="calendar-section hidden" aria-label="Release calendar">
+        <div class="calendar-header">
+          <div class="calendar-title-row">
+            <h2 class="section-title">
+              Release Calendar
+              <span id="calendar-count" class="count-badge">0</span>
+            </h2>
+
+            <div class="view-toggle cal-view-toggle" role="group" aria-label="Calendar layout">
+              <button class="pill active" data-cal-view="month">Month</button>
+              <button class="pill" data-cal-view="list">List</button>
+            </div>
+
+            <button id="calendar-refresh-btn" class="btn btn-ghost btn-sm" title="Refresh calendar" aria-label="Refresh calendar">
+              <svg class="refresh-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="btn-spinner spinner hidden" aria-hidden="true"></span>
+            </button>
+          </div>
+
+          <div class="calendar-controls">
+            <div id="cal-month-nav" class="cal-month-nav">
+              <button id="cal-prev" class="btn btn-secondary btn-sm cal-nav-btn" aria-label="Previous month">&lsaquo;</button>
+              <span id="cal-month-label" class="cal-month-label"></span>
+              <button id="cal-next" class="btn btn-secondary btn-sm cal-nav-btn" aria-label="Next month">&rsaquo;</button>
+              <button id="cal-today" class="btn btn-secondary btn-sm">Today</button>
+            </div>
+
+            <select id="cal-type-filter" class="filter-select" aria-label="Filter calendar by type">
+              <option value="all">All Types</option>
+              <option value="movie-tv">Movies &amp; TV</option>
+              <option value="movie">Movies</option>
+              <option value="tv">TV Shows</option>
+              <option value="game">Games</option>
+            </select>
+          </div>
+        </div>
+
+        <p id="calendar-error" class="error-msg hidden" role="alert"></p>
+
+        <div id="calendar-loading" class="loading-state hidden">
+          <div class="spinner spinner-lg" aria-hidden="true"></div>
+          <p>Loading calendar&hellip;</p>
+        </div>
+
+        <div id="cal-month-view" class="cal-month-view">
+          <div class="cal-weekdays" aria-hidden="true">
+            <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+          </div>
+          <div id="cal-grid" class="cal-grid"></div>
+        </div>
+
+        <div id="cal-list-view" class="cal-list-view hidden"></div>
+
+        <div id="cal-tba-wrap" class="cal-tba-wrap hidden">
+          <h3 class="cal-tba-title">Date TBA</h3>
+          <div id="cal-tba-row" class="cal-tba-row"></div>
+        </div>
+
+        <p id="calendar-empty" class="empty-state hidden">No releases this month.</p>
+      </section>
+
+      <!-- Recommendations Section -->
+      <section id="recommendations-section" class="recommendations-section hidden" aria-label="Recommended for you">
+        <div class="recommendations-header">
+          <div class="recommendations-title-row">
+            <h2 class="section-title">
+              Recommended for You
+              <span id="recommendations-count" class="count-badge">0</span>
+            </h2>
+
+            <div class="recommendations-controls">
+              <select id="rec-type-filter" class="filter-select" aria-label="Filter recommendations by type">
+                <option value="all">All Types</option>
+                <option value="movie-tv">Movies &amp; TV</option>
+                <option value="movie">Movies</option>
+                <option value="tv">TV Shows</option>
+                <option value="game">Games</option>
+              </select>
+
+              <select id="rec-sort-select" class="filter-select" aria-label="Sort recommendations">
+                <option value="score">Best Match</option>
+                <option value="rating">Rating &darr;</option>
+                <option value="popularity">Popularity &darr;</option>
+                <option value="release-desc">Release Date &darr;</option>
+                <option value="release-asc">Release Date &uarr;</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <p id="recommendations-error" class="error-msg hidden" role="alert"></p>
+
+        <div id="recommendations-loading" class="loading-state hidden">
+          <div class="spinner spinner-lg" aria-hidden="true"></div>
+          <p>Loading recommendations&hellip;</p>
+        </div>
+
+        <div id="recommendations-grid" class="recommendations-grid hidden" role="list"></div>
+
+        <p id="recommendations-empty" class="empty-state hidden">No recommendations yet.</p>
       </section>
 
     </main>

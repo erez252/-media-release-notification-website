@@ -153,6 +153,10 @@ async function apiPost(endpoint, body) {
 // Auth
 // ─────────────────────────────────────────────────────────────
 
+// Password is cached in localStorage so the site auto-logs-in on return visits.
+// (Personal project — intentionally persisted, unlike the original Kiro spec.)
+const SAVED_PASSWORD_KEY = 'watchlist.savedPassword';
+
 async function handleLogin() {
   clearError(authError);
   const pwd = passwordInput.value.trim();
@@ -168,6 +172,7 @@ async function handleLogin() {
   setBtnLoading(submitBtn, false);
 
   if (status === 401 || !ok) {
+    try { localStorage.removeItem(SAVED_PASSWORD_KEY); } catch (_) { /* storage unavailable */ }
     showError(authError, 'Incorrect password. Please try again.');
     return;
   }
@@ -175,6 +180,7 @@ async function handleLogin() {
   // Success — store password and boot the app
   currentPassword = pwd;
   watchlistData   = Array.isArray(data) ? data : [];
+  try { localStorage.setItem(SAVED_PASSWORD_KEY, pwd); } catch (_) { /* storage unavailable */ }
 
   hide(overlay);
   show(app);
@@ -186,6 +192,7 @@ function handleLogout() {
   currentPassword = '';
   watchlistData   = [];
   passwordInput.value = '';
+  try { localStorage.removeItem(SAVED_PASSWORD_KEY); } catch (_) { /* storage unavailable */ }
   clearError(authError);
   hide(app);
   show(overlay);
@@ -202,6 +209,36 @@ function handleLogout() {
   document.querySelectorAll('.search-type-pills .pill').forEach((b, i) => {
     b.classList.toggle('active', i === 0);
   });
+  // Reset calendar view
+  calendarData   = [];
+  calendarLoaded = false;
+  calendarView   = 'month';
+  calendarFilter = 'all';
+  calMonthCursor = startOfMonth(new Date());
+  calGridView.innerHTML = '';
+  calListView.innerHTML = '';
+  calTbaRow.innerHTML   = '';
+  hide(calTbaWrap);
+  hide(calendarEmpty);
+  hide(calendarLoading);
+  clearError(calendarError);
+  calTypeFilter.value = 'all';
+  document.querySelectorAll('.cal-view-toggle [data-cal-view]').forEach((b, i) => {
+    b.classList.toggle('active', i === 0);
+  });
+  // Reset recommendations view
+  recsData   = [];
+  recsLoaded = false;
+  recFilter  = 'all';
+  recSort    = 'score';
+  recommendationsGrid.innerHTML = '';
+  hide(recommendationsGrid);
+  hide(recommendationsEmpty);
+  hide(recommendationsLoading);
+  clearError(recommendationsError);
+  recTypeFilter.value = 'all';
+  recSortSelect.value = 'score';
+  switchView('watchlist');
 }
 
 // Allow Enter key on password field
@@ -1957,3 +1994,694 @@ refreshBtn.addEventListener('click', async () => {
   populateGenreFilter();
   applyFiltersAndSort();
 });
+
+// ─────────────────────────────────────────────────────────────
+// View switching (Watchlist ↔ Calendar)
+// ─────────────────────────────────────────────────────────────
+
+const viewToggleBtns   = document.querySelectorAll('.view-toggle [data-view]');
+const watchlistSection = document.querySelector('.watchlist-section');
+const searchBar        = document.querySelector('.search-bar');
+
+function switchView(view) {
+  viewToggleBtns.forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  const isCalendar = view === 'calendar';
+  const isRecs     = view === 'recommendations';
+
+  watchlistSection.classList.toggle('hidden', isCalendar || isRecs);
+  searchBar.classList.toggle('hidden', isCalendar || isRecs);
+
+  hide(searchSection);
+  hide(calendarSection);
+  hide(recommendationsSection);
+
+  if (isCalendar) {
+    show(calendarSection);
+    if (calendarLoaded) renderCalendar();
+    else loadCalendar();
+  } else if (isRecs) {
+    show(recommendationsSection);
+    if (recsLoaded) renderRecommendations();
+    else loadRecommendations();
+  }
+}
+
+viewToggleBtns.forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.view)));
+
+// ─────────────────────────────────────────────────────────────
+// Calendar
+// ─────────────────────────────────────────────────────────────
+
+const calendarSection = $('calendar-section');
+const calendarError   = $('calendar-error');
+const calendarLoading = $('calendar-loading');
+const calendarEmpty   = $('calendar-empty');
+const calendarCount   = $('calendar-count');
+const calRefreshBtn   = $('calendar-refresh-btn');
+const calMonthNav     = $('cal-month-nav');
+const calMonthLabel   = $('cal-month-label');
+const calMonthView    = $('cal-month-view');
+const calGridView     = $('cal-grid');
+const calListView     = $('cal-list-view');
+const calTbaWrap      = $('cal-tba-wrap');
+const calTbaRow       = $('cal-tba-row');
+const calTypeFilter   = $('cal-type-filter');
+
+let calendarData   = [];          // raw items from /calendar/get
+let calendarLoaded = false;       // has the endpoint been fetched this session?
+let calendarView   = 'month';     // 'month' | 'list'
+let calendarFilter = 'all';       // 'all' | 'movie-tv' | 'movie' | 'tv' | 'game'
+let calMonthCursor = startOfMonth(new Date());
+
+function startOfMonth(d) {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+/** 'YYYY-MM-DD' from an ISO airstamp — timezone-safe (uses the stamped calendar date). */
+function stampKey(stamp) {
+  return String(stamp || '').slice(0, 10);
+}
+
+/** Parse a 'YYYY-MM-DD' key into a local Date at midnight. */
+function parseKeyDate(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
+function keyFromDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+const PRECISE_DATE_FORMATS = new Set(['YYYYMMDD', 'YYYYMMMMDD']);
+
+/** Only games carry a `date_format`; a vague one (quarter / year / TBD) belongs in the TBA strip. */
+function isPreciseItem(item) {
+  if (item.media_type !== 'game') return true;
+  if (!item.date_format) return true;
+  return PRECISE_DATE_FORMATS.has(item.date_format);
+}
+
+/** Human label for a vague release date, e.g. "Q2 2027", "2028" or "TBA". */
+function vagueDateLabel(item) {
+  const key = stampKey(item.airstamp);
+  const [y, m] = key.split('-').map(Number);
+  const monthName = new Date(y || 2000, (m || 1) - 1, 1).toLocaleDateString('en-US', { month: 'long' });
+  switch (item.date_format) {
+    case 'YYYYMMMM': return `${monthName} ${y}`;
+    case 'YYYY':     return `${y}`;
+    case 'YYYYQ1':   return `Q1 ${y}`;
+    case 'YYYYQ2':   return `Q2 ${y}`;
+    case 'YYYYQ3':   return `Q3 ${y}`;
+    case 'YYYYQ4':   return `Q4 ${y}`;
+    default:         return 'TBA';
+  }
+}
+
+/** Poster image (TMDB for movie/tv, IGDB for games) with a graceful placeholder. */
+function calPoster(item, imgClass) {
+  if (item.poster_path) {
+    const img = document.createElement('img');
+    img.src = item.media_type === 'game'
+      ? `${IGDB_BASE}${item.poster_path}.webp`
+      : `${POSTER_BASE}${item.poster_path}`;
+    img.alt = item.title || '';
+    img.className = imgClass;
+    img.loading = 'lazy';
+    img.onerror = () => img.replaceWith(calPosterPlaceholder(imgClass));
+    return img;
+  }
+  return calPosterPlaceholder(imgClass);
+}
+
+function calPosterPlaceholder(imgClass) {
+  const div = document.createElement('div');
+  div.className = `${imgClass}-ph`;
+  return div;
+}
+
+function episodeCode(item) {
+  return `S${String(item.season ?? '?').padStart(2, '0')}E${String(item.number ?? '?').padStart(2, '0')}`;
+}
+
+/** Secondary line shown under a title in the list view. */
+function calSubtitle(item) {
+  if (item.media_type === 'tv')   return `${episodeCode(item)} · ${item.name || 'Episode'}`;
+  if (item.media_type === 'game') return item.name && item.name !== item.title ? item.name : '';
+  return '';
+}
+
+/** Rich hover tooltip for the compact month-grid chips. */
+function calTooltip(item) {
+  const parts = [item.title];
+  if (item.media_type === 'tv') parts.push(`${episodeCode(item)} ${item.name || ''}`.trim());
+  if (item.type) parts.push(item.type);
+  if (item.runtime) parts.push(`${item.runtime}m`);
+  if (item.media_type === 'game' && item.platforms?.length) parts.push(item.platforms.join(', '));
+  return parts.filter(Boolean).join(' — ');
+}
+
+/** Reuse the existing detail overlay for movies / shows; games aren't clickable. */
+function openCalendarItem(item) {
+  if (item.media_type === 'movie')      openDetailOverlay(item.id, 'movie');
+  else if (item.media_type === 'tv')    openDetailOverlay(item.id, 'tv', item.tvmaze_id);
+}
+
+function relativeDayLabel(date) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((date - today) / 86400000);
+  if (diff === 0)  return 'Today';
+  if (diff === 1)  return 'Tomorrow';
+  if (diff === -1) return 'Yesterday';
+  return diff > 1 ? `In ${diff} days` : `${-diff} days ago`;
+}
+
+function applyCalendarFilter(items) {
+  if (calendarFilter === 'movie-tv') return items.filter(i => i.media_type !== 'game');
+  if (calendarFilter !== 'all')      return items.filter(i => i.media_type === calendarFilter);
+  return items;
+}
+
+async function loadCalendar() {
+  clearError(calendarError);
+  hide(calendarEmpty);
+  hide(calMonthView);
+  hide(calListView);
+  hide(calTbaWrap);
+  show(calendarLoading);
+  setBtnLoading(calRefreshBtn, true);
+  calRefreshBtn.querySelector('.refresh-icon')?.classList.add('spinning');
+
+  let ok = false, status = 0, data = null;
+  try {
+    const res = await fetch(`${API}/calendar/get`, {
+      method:  'POST',
+      headers: {
+        'Authorization': `Bearer ${currentPassword}`,
+        'Content-Type':  'application/json',
+      },
+    });
+    ok     = res.ok;
+    status = res.status;
+    try { data = await res.json(); } catch (_) { /* empty body */ }
+  } catch (_) { ok = false; }
+
+  hide(calendarLoading);
+  setBtnLoading(calRefreshBtn, false);
+  calRefreshBtn.querySelector('.refresh-icon')?.classList.remove('spinning');
+
+  if (!ok) {
+    showError(calendarError, status === 401
+      ? 'Session expired. Please re-login.'
+      : 'Could not load the calendar. Please try again.');
+    return;
+  }
+
+  calendarData   = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+  calendarLoaded = true;
+  calMonthCursor = startOfMonth(new Date());
+  renderCalendar();
+}
+
+function renderCalendar() {
+  const items   = applyCalendarFilter(calendarData);
+  const precise = items.filter(isPreciseItem);
+  const vague   = items.filter(i => !isPreciseItem(i));
+
+  calendarCount.textContent = items.length;
+  calMonthNav.classList.toggle('hidden', calendarView !== 'month');
+
+  if (calendarView === 'month') {
+    hide(calListView);
+    show(calMonthView);
+    renderMonthView(precise);
+  } else {
+    hide(calMonthView);
+    show(calListView);
+    renderListView(precise);
+  }
+
+  renderTbaStrip(vague);
+}
+
+function renderMonthView(items) {
+  const y = calMonthCursor.getFullYear();
+  const m = calMonthCursor.getMonth();
+  calMonthLabel.textContent = calMonthCursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const byDate = new Map();
+  items.forEach(it => {
+    const k = stampKey(it.airstamp);
+    if (!byDate.has(k)) byDate.set(k, []);
+    byDate.get(k).push(it);
+  });
+
+  const typeOrder = { movie: 0, tv: 1, game: 2 };
+  const todayKey  = keyFromDate(new Date());
+  const gridStart = new Date(y, m, 1 - new Date(y, m, 1).getDay());
+
+  calGridView.innerHTML = '';
+  for (let i = 0; i < 42; i++) {
+    const cellDate = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+    const key      = keyFromDate(cellDate);
+    const cell     = document.createElement('div');
+    cell.className = 'cal-day'
+      + (cellDate.getMonth() === m ? '' : ' cal-day--other')
+      + (key === todayKey ? ' cal-day--today' : '');
+
+    const num = document.createElement('div');
+    num.className = 'cal-day-num';
+    num.textContent = cellDate.getDate();
+    cell.appendChild(num);
+
+    const dayItems = byDate.get(key);
+    if (dayItems && dayItems.length) {
+      const wrap = document.createElement('div');
+      wrap.className = 'cal-day-items';
+      [...dayItems]
+        .sort((a, b) => (typeOrder[a.media_type] ?? 3) - (typeOrder[b.media_type] ?? 3))
+        .forEach(it => wrap.appendChild(buildCalendarChip(it)));
+      cell.appendChild(wrap);
+    }
+    calGridView.appendChild(cell);
+  }
+
+  const monthPrefix = `${y}-${String(m + 1).padStart(2, '0')}`;
+  if (items.some(it => stampKey(it.airstamp).startsWith(monthPrefix))) {
+    hide(calendarEmpty);
+  } else {
+    calendarEmpty.textContent = 'No releases this month.';
+    show(calendarEmpty);
+  }
+}
+
+function buildCalendarChip(item) {
+  const isGame = item.media_type === 'game';
+  const chip   = document.createElement(isGame ? 'div' : 'button');
+  chip.className = `cal-chip cal-chip--${item.media_type}` + (isGame ? ' cal-chip--static' : '');
+  if (!isGame) chip.type = 'button';
+  chip.title = calTooltip(item);
+
+  chip.appendChild(calPoster(item, 'cal-chip-poster'));
+
+  const title = document.createElement('span');
+  title.className = 'cal-chip-title';
+  title.textContent = item.media_type === 'tv' ? `${item.title} ${episodeCode(item)}` : item.title;
+  chip.appendChild(title);
+
+  if (!isGame) chip.addEventListener('click', () => openCalendarItem(item));
+  return chip;
+}
+
+function renderListView(items) {
+  calListView.innerHTML = '';
+
+  // The endpoint also returns historical releases — the list is an upcoming agenda, so skip past days.
+  const todayKey = keyFromDate(new Date());
+
+  const groups = new Map();
+  [...items]
+    .filter(it => stampKey(it.airstamp) >= todayKey)
+    .sort((a, b) => stampKey(a.airstamp).localeCompare(stampKey(b.airstamp)))
+    .forEach(it => {
+      const k = stampKey(it.airstamp);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(it);
+    });
+
+  if (!groups.size) {
+    calendarEmpty.textContent = 'No upcoming releases.';
+    show(calendarEmpty);
+    return;
+  }
+  hide(calendarEmpty);
+
+  [...groups.keys()].sort().forEach(key => {
+    const dateObj = parseKeyDate(key);
+
+    const group = document.createElement('div');
+    group.className = 'cal-list-group';
+
+    const header = document.createElement('div');
+    header.className = 'cal-list-date';
+    header.appendChild(document.createTextNode(
+      dateObj.toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+    ));
+    const rel = document.createElement('span');
+    rel.className = 'cal-rel';
+    rel.textContent = relativeDayLabel(dateObj);
+    header.appendChild(rel);
+    group.appendChild(header);
+
+    const list = document.createElement('div');
+    list.className = 'cal-list-items';
+    groups.get(key).forEach(it => list.appendChild(buildCalendarRow(it)));
+    group.appendChild(list);
+    calListView.appendChild(group);
+  });
+}
+
+function buildCalendarRow(item) {
+  const isGame = item.media_type === 'game';
+  const row    = document.createElement('div');
+  row.className = `cal-list-item` + (isGame ? '' : ' cal-list-item--clickable');
+
+  row.appendChild(calPoster(item, 'cal-list-poster'));
+
+  const info = document.createElement('div');
+  info.className = 'cal-list-info';
+
+  const title = document.createElement('div');
+  title.className = 'cal-list-title';
+  title.textContent = item.title;
+  info.appendChild(title);
+
+  const sub = calSubtitle(item);
+  if (sub) {
+    const subEl = document.createElement('div');
+    subEl.className = 'cal-list-sub';
+    subEl.textContent = sub;
+    info.appendChild(subEl);
+  }
+
+  const meta = document.createElement('div');
+  meta.className = 'cal-list-meta';
+
+  const badge = document.createElement('span');
+  badge.className = `cal-type-badge cal-type-badge--${item.media_type}`;
+  badge.textContent = item.type || item.media_type;
+  meta.appendChild(badge);
+
+  if (item.runtime) meta.appendChild(document.createTextNode(`${item.runtime}m`));
+  if (item.media_type === 'game' && item.platforms?.length) {
+    meta.appendChild(document.createTextNode(item.platforms.join(' · ')));
+  }
+  info.appendChild(meta);
+  row.appendChild(info);
+
+  if (!isGame) row.addEventListener('click', () => openCalendarItem(item));
+  return row;
+}
+
+function renderTbaStrip(vagueItems) {
+  if (!vagueItems.length) {
+    calTbaRow.innerHTML = '';
+    hide(calTbaWrap);
+    return;
+  }
+  calTbaRow.innerHTML = '';
+  [...vagueItems]
+    .sort((a, b) => (a.title || '').localeCompare(b.title || ''))
+    .forEach(it => calTbaRow.appendChild(buildTbaCard(it)));
+  show(calTbaWrap);
+}
+
+function buildTbaCard(item) {
+  const card = document.createElement('div');
+  card.className = `cal-tba-card cal-tba-card--${item.media_type}`;
+
+  card.appendChild(calPoster(item, 'cal-tba-poster'));
+
+  const info = document.createElement('div');
+  info.className = 'cal-tba-info';
+
+  const name = document.createElement('div');
+  name.className = 'cal-tba-name';
+  name.textContent = item.name && item.name !== item.title ? `${item.title} — ${item.name}` : item.title;
+  info.appendChild(name);
+
+  const meta = document.createElement('div');
+  meta.className = 'cal-list-meta';
+  const badge = document.createElement('span');
+  badge.className = `cal-type-badge cal-type-badge--${item.media_type}`;
+  badge.textContent = item.type || 'Game';
+  meta.appendChild(badge);
+  if (item.platforms?.length) meta.appendChild(document.createTextNode(item.platforms.join(' · ')));
+  info.appendChild(meta);
+  card.appendChild(info);
+
+  const dateBadge = document.createElement('span');
+  dateBadge.className = 'cal-tba-date';
+  dateBadge.textContent = vagueDateLabel(item);
+  card.appendChild(dateBadge);
+
+  return card;
+}
+
+// Calendar toolbar wiring
+calTypeFilter.addEventListener('change', () => {
+  calendarFilter = calTypeFilter.value;
+  renderCalendar();
+});
+
+document.querySelectorAll('.cal-view-toggle [data-cal-view]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    calendarView = btn.dataset.calView;
+    document.querySelectorAll('.cal-view-toggle [data-cal-view]').forEach(b => b.classList.toggle('active', b === btn));
+    renderCalendar();
+  });
+});
+
+$('cal-prev').addEventListener('click', () => {
+  calMonthCursor = new Date(calMonthCursor.getFullYear(), calMonthCursor.getMonth() - 1, 1);
+  renderCalendar();
+});
+
+$('cal-next').addEventListener('click', () => {
+  calMonthCursor = new Date(calMonthCursor.getFullYear(), calMonthCursor.getMonth() + 1, 1);
+  renderCalendar();
+});
+
+$('cal-today').addEventListener('click', () => {
+  calMonthCursor = startOfMonth(new Date());
+  renderCalendar();
+});
+
+calRefreshBtn.addEventListener('click', loadCalendar);
+
+// ─────────────────────────────────────────────────────────────
+// Recommendations
+// ─────────────────────────────────────────────────────────────
+
+const recommendationsSection = $('recommendations-section');
+const recommendationsError   = $('recommendations-error');
+const recommendationsLoading = $('recommendations-loading');
+const recommendationsEmpty   = $('recommendations-empty');
+const recommendationsCount   = $('recommendations-count');
+const recommendationsGrid    = $('recommendations-grid');
+const recTypeFilter          = $('rec-type-filter');
+const recSortSelect          = $('rec-sort-select');
+
+let recsData   = [];          // raw items from /recommendations/get
+let recsLoaded = false;       // has the endpoint been fetched this session?
+let recFilter  = 'all';       // 'all' | 'movie-tv' | 'movie' | 'tv' | 'game'
+let recSort    = 'score';     // 'score' | 'rating' | 'popularity' | 'release-desc' | 'release-asc'
+
+/** Game vote_average comes on a 0-100 scale (IGDB); movies/TV are 0-10 (TMDB). */
+function recVote(item) {
+  const raw = Number(item.vote_average);
+  if (!raw) return null;
+  return item.media_type === 'game' ? raw / 10 : raw;
+}
+
+function applyRecommendationsFilter(items) {
+  if (recFilter === 'movie-tv') return items.filter(i => i.media_type !== 'game');
+  if (recFilter !== 'all')      return items.filter(i => i.media_type === recFilter);
+  return items;
+}
+
+/** Default sort is the recommendation score; other options break ties on it. */
+function sortRecommendations(items) {
+  const score = i => Number(i.recommendation_score) || 0;
+  const byScore = (a, b) => score(b) - score(a);
+
+  switch (recSort) {
+    case 'rating':
+      return [...items].sort((a, b) => (recVote(b) || 0) - (recVote(a) || 0) || byScore(a, b));
+    case 'popularity':
+      return [...items].sort((a, b) => (Number(b.popularity) || 0) - (Number(a.popularity) || 0) || byScore(a, b));
+    case 'release-desc':
+      return [...items].sort((a, b) => String(b.release_date || '').localeCompare(String(a.release_date || '')) || byScore(a, b));
+    case 'release-asc':
+      return [...items].sort((a, b) => String(a.release_date || '').localeCompare(String(b.release_date || '')) || byScore(a, b));
+    default:
+      return [...items].sort(byScore);
+  }
+}
+
+async function loadRecommendations() {
+  clearError(recommendationsError);
+  hide(recommendationsEmpty);
+  hide(recommendationsGrid);
+  show(recommendationsLoading);
+
+  let ok = false, status = 0, data = null;
+  try {
+    const res = await fetch(`${API}/recommendations/get`, {
+      method:  'POST',
+      headers: {
+        'Authorization': `Bearer ${currentPassword}`,
+        'Content-Type':  'application/json',
+      },
+    });
+    ok     = res.ok;
+    status = res.status;
+    try { data = await res.json(); } catch (_) { /* empty body */ }
+  } catch (_) { ok = false; }
+
+  hide(recommendationsLoading);
+
+  if (!ok) {
+    showError(recommendationsError, status === 401
+      ? 'Session expired. Please re-login.'
+      : 'Could not load recommendations. Please try again.');
+    return;
+  }
+
+  recsData   = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+  recsLoaded = true;
+  renderRecommendations();
+}
+
+function renderRecommendations() {
+  const items = sortRecommendations(applyRecommendationsFilter(recsData));
+  recommendationsCount.textContent = items.length;
+  recommendationsGrid.innerHTML = '';
+
+  if (!items.length) {
+    recommendationsEmpty.textContent = 'No recommendations match your filter.';
+    show(recommendationsEmpty);
+    return;
+  }
+
+  hide(recommendationsEmpty);
+  items.forEach(it => recommendationsGrid.appendChild(buildRecommendationCard(it)));
+  show(recommendationsGrid);
+}
+
+function buildRecommendationCard(item) {
+  const isGame = item.media_type === 'game';
+  const genres = (item.genres || []).slice(0, 3).map(g => g.name);
+  const year   = item.release_date ? String(item.release_date).slice(0, 4) : null;
+  const vote   = recVote(item);
+
+  const card = document.createElement('div');
+  card.className = 'rec-card';
+  card.setAttribute('role', 'listitem');
+
+  // Poster + type badge + recommendation score
+  const posterWrap = document.createElement('div');
+  posterWrap.className = 'rec-card-poster-wrap';
+
+  posterWrap.appendChild(makePoster(item.poster_path, item.title, {
+    img:         'rec-card-poster',
+    placeholder: 'rec-card-poster-placeholder',
+  }, item.media_type));
+
+  const badge = document.createElement('span');
+  const badgeCls = item.media_type === 'movie' ? 'type-badge-movie'
+                 : isGame ? 'type-badge-game'
+                 : 'type-badge-tv';
+  badge.className  = `type-badge ${badgeCls}`;
+  badge.textContent = item.media_type === 'movie' ? 'Movie' : isGame ? 'Game' : 'TV';
+  posterWrap.appendChild(badge);
+
+  if (item.recommendation_score != null) {
+    const scoreBadge = document.createElement('span');
+    scoreBadge.className   = 'rec-score-badge';
+    scoreBadge.textContent = `\u2605 ${item.recommendation_score}`;
+    scoreBadge.title       = `Recommendation score: ${item.recommendation_score}`;
+    posterWrap.appendChild(scoreBadge);
+  }
+
+  card.appendChild(posterWrap);
+
+  // Body
+  const body = document.createElement('div');
+  body.className = 'rec-card-body';
+
+  const title = document.createElement('div');
+  title.className   = 'rec-card-title';
+  title.textContent = item.title;
+  body.appendChild(title);
+
+  const metaParts = [];
+  if (year)        metaParts.push(year);
+  if (vote != null) metaParts.push(`\u2605 ${vote.toFixed(1)}`);
+  if (metaParts.length) {
+    const meta = document.createElement('div');
+    meta.className   = 'rec-card-meta';
+    meta.textContent = metaParts.join(' \u00b7 ');
+    body.appendChild(meta);
+  }
+
+  if (genres.length) {
+    const genreWrap = document.createElement('div');
+    genreWrap.className = 'rec-card-genres';
+    genres.forEach(g => {
+      const tag = document.createElement('span');
+      tag.className   = 'genre-tag';
+      tag.textContent = g;
+      genreWrap.appendChild(tag);
+    });
+    body.appendChild(genreWrap);
+  }
+
+  // Footer actions — details (movie/tv) + add to watchlist
+  const footer = document.createElement('div');
+  footer.className = 'rec-card-footer';
+
+  const btnRow = document.createElement('div');
+  btnRow.className = 'rec-card-btn-row';
+
+  if (!isGame) {
+    const infoBtn = document.createElement('button');
+    infoBtn.className = 'btn btn-info-icon';
+    infoBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M12 16v-4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+    infoBtn.setAttribute('aria-label', `More info about ${item.title}`);
+    infoBtn.addEventListener('click', () => {
+      if (item.media_type === 'movie') openDetailOverlay(item.id, 'movie');
+      else                             openDetailOverlay(item.id, 'tv');
+    });
+    btnRow.appendChild(infoBtn);
+  }
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'btn btn-add';
+  addBtn.innerHTML = `<span class="btn-text">+ Add</span><span class="btn-spinner spinner hidden" aria-hidden="true"></span>`;
+  addBtn.setAttribute('aria-label', `Add ${item.title} to watchlist`);
+
+  const feedbackEl = document.createElement('div');
+  addBtn.addEventListener('click', () => handleAdd(item.id, item.media_type, addBtn, feedbackEl));
+  btnRow.appendChild(addBtn);
+
+  footer.appendChild(btnRow);
+  footer.appendChild(feedbackEl);
+  body.appendChild(footer);
+  card.appendChild(body);
+
+  return card;
+}
+
+// Recommendations toolbar wiring
+recTypeFilter.addEventListener('change', () => {
+  recFilter = recTypeFilter.value;
+  renderRecommendations();
+});
+
+recSortSelect.addEventListener('change', () => {
+  recSort = recSortSelect.value;
+  renderRecommendations();
+});
+
+// ─────────────────────────────────────────────────────────────
+// Auto-login with the saved password (skip the overlay on return visits)
+// ─────────────────────────────────────────────────────────────
+
+(function autoLogin() {
+  let saved = null;
+  try { saved = localStorage.getItem(SAVED_PASSWORD_KEY); } catch (_) { /* storage unavailable */ }
+  if (!saved) return;
+  passwordInput.value = saved;
+  handleLogin();
+})();
