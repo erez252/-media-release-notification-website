@@ -35,7 +35,6 @@ const tvResults       = $('tv-results');
 const gamesResults    = $('games-results');
 const noSearchResults = $('no-search-results');
 
-const filterInput     = $('filter-input');
 const watchlistGrid   = $('watchlist-grid');
 const watchlistCount  = $('watchlist-count');
 const watchlistError  = $('watchlist-error');
@@ -45,7 +44,6 @@ const filterEmpty     = $('filter-empty');
 
 const logoutBtn       = $('logout-btn');
 const refreshBtn      = $('refresh-btn');
-const typeFilter      = $('type-filter');
 const genreFilter     = $('genre-filter');
 const sortSelect      = $('sort-select');
 
@@ -57,17 +55,57 @@ const detailError     = $('detail-error');
 const detailContent   = $('detail-content');
 const detailCloseBtn  = $('detail-close-btn');
 
-// Search type filter (All / Movies / TV)
-let searchTypeFilter = 'all'; // 'all' | 'movie' | 'tv'
-let lastSearchResults = null; // { movies: [], tvShows: [] } — cached from last API call
+// Global media-type filter (multi-select). Empty set = every type.
+const activeTypes = new Set(); // subset of { 'movie', 'tv', 'game' }
+let lastSearchResults = null; // { movies: [], tvShows: [], games: [] } — cached from last API call
+
+/** Does a media_type pass the current type filter? */
+function matchesActiveTypes(mediaType) {
+  return activeTypes.size === 0 || activeTypes.has(mediaType);
+}
+
+/** Current free-text query from the single search/filter input. */
+function currentQuery() {
+  return searchInput.value.trim().toLowerCase();
+}
+
+/** Sync the type-pill UI with activeTypes ("All" is active when nothing is picked). */
+function syncTypePills() {
+  document.querySelectorAll('.search-type-pills .pill').forEach(btn => {
+    const t  = btn.dataset.type;
+    const on = t === 'all' ? activeTypes.size === 0 : activeTypes.has(t);
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', String(on));
+  });
+}
+
+/** Re-render the list views (watchlist, calendar, recommendations) with the current filters. */
+function refreshListViews() {
+  applyFiltersAndSort();
+  if (calendarLoaded) renderCalendar();
+  if (recsLoaded) renderRecommendations();
+}
+
+/** Apply the type filter to every rendered view. */
+function applyTypeFilterEverywhere() {
+  syncTypePills();
+  if (lastSearchResults) {
+    renderSearchResults(lastSearchResults.movies, lastSearchResults.tvShows, lastSearchResults.games);
+  }
+  refreshListViews();
+}
 
 document.querySelectorAll('.search-type-pills .pill').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.search-type-pills .pill').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    searchTypeFilter = btn.dataset.type;
-    // Re-render cached results immediately — no new API call needed
-    if (lastSearchResults) renderSearchResults(lastSearchResults.movies, lastSearchResults.tvShows, lastSearchResults.games);
+    const t = btn.dataset.type;
+    if (t === 'all') {
+      activeTypes.clear();
+    } else if (activeTypes.has(t)) {
+      activeTypes.delete(t);
+    } else {
+      activeTypes.add(t);
+    }
+    applyTypeFilterEverywhere();
   });
 });
 
@@ -199,21 +237,17 @@ function handleLogout() {
   clearSearchUI();
   watchlistGrid.innerHTML = '';
   // Reset filter/sort controls
-  filterInput.value  = '';
-  typeFilter.value   = 'all';
+  searchInput.value  = '';
   genreFilter.innerHTML = '<option value="all">All Genres</option>';
   sortSelect.value   = 'newest';
-  // Reset search type pills
-  searchTypeFilter = 'all';
+  // Reset media-type pills (global filter)
+  activeTypes.clear();
   lastSearchResults = null;
-  document.querySelectorAll('.search-type-pills .pill').forEach((b, i) => {
-    b.classList.toggle('active', i === 0);
-  });
+  syncTypePills();
   // Reset calendar view
   calendarData   = [];
   calendarLoaded = false;
-  calendarView   = 'month';
-  calendarFilter = 'all';
+  calendarView   = defaultCalendarView();
   calMonthCursor = startOfMonth(new Date());
   calGridView.innerHTML = '';
   calListView.innerHTML = '';
@@ -222,21 +256,16 @@ function handleLogout() {
   hide(calendarEmpty);
   hide(calendarLoading);
   clearError(calendarError);
-  calTypeFilter.value = 'all';
-  document.querySelectorAll('.cal-view-toggle [data-cal-view]').forEach((b, i) => {
-    b.classList.toggle('active', i === 0);
-  });
+  syncCalViewPills();
   // Reset recommendations view
   recsData   = [];
   recsLoaded = false;
-  recFilter  = 'all';
   recSort    = 'score';
   recommendationsGrid.innerHTML = '';
   hide(recommendationsGrid);
   hide(recommendationsEmpty);
   hide(recommendationsLoading);
   clearError(recommendationsError);
-  recTypeFilter.value = 'all';
   recSortSelect.value = 'score';
   switchView('watchlist');
 }
@@ -548,14 +577,12 @@ async function handleToggleNotification(movieId, movieType, btn, errorEl) {
 
 /** Populate the genre dropdown from watchlistData, filtered by the active type selection */
 function populateGenreFilter() {
-  const current     = genreFilter.value;
-  const activeType  = typeFilter.value; // 'all' | 'movie' | 'tv' | 'game'
+  const current = genreFilter.value;
 
-  // Only collect genres from items that match the active type filter
+  // Only collect genres from items that pass the global type filter
   const genres = new Set();
   watchlistData.forEach(item => {
-    if (activeType === 'movie-tv' && item.media_type === 'game') return;
-    if (activeType !== 'all' && activeType !== 'movie-tv' && item.media_type !== activeType) return;
+    if (!matchesActiveTypes(item.media_type)) return;
     (item.genres || []).forEach(g => genres.add(g.name));
   });
 
@@ -578,8 +605,7 @@ function populateGenreFilter() {
 
 /** Apply all active filters + sort and re-render */
 function applyFiltersAndSort() {
-  const q     = filterInput.value.trim().toLowerCase();
-  const type  = typeFilter.value;       // 'all' | 'movie' | 'tv'
+  const q     = currentQuery();
   const genre = genreFilter.value;      // 'all' | genre name string
   const sort  = sortSelect.value;       // 'newest' | 'oldest'
 
@@ -690,8 +716,7 @@ function applyFiltersAndSort() {
 
   // Apply filters
   items = items.filter(item => {
-    if (type === 'movie-tv' && item.media_type === 'game') return false;
-    if (type !== 'all' && type !== 'movie-tv' && item.media_type !== type) return false;
+    if (!matchesActiveTypes(item.media_type)) return false;
     if (genre !== 'all' && !(item.genres || []).some(g => g.name === genre)) return false;
     if (q && !item.title.toLowerCase().includes(q)) return false;
     return true;
@@ -700,12 +725,7 @@ function applyFiltersAndSort() {
   renderWatchlist(items);
 }
 
-// Wire up all filter/sort controls
-filterInput.addEventListener('input', applyFiltersAndSort);
-typeFilter.addEventListener('change', () => {
-  populateGenreFilter(); // refresh genre list to match selected type
-  applyFiltersAndSort();
-});
+// Wire up the remaining filter/sort controls (type is handled by the global pills)
 genreFilter.addEventListener('change', applyFiltersAndSort);
 sortSelect.addEventListener('change', applyFiltersAndSort);
 
@@ -747,6 +767,7 @@ async function handleSearch() {
   const games   = data?.game_results  ?? [];
 
   if (!movies.length && !tvShows.length && !games.length) {
+    lastSearchResults = null;
     show(noSearchResults);
     return;
   }
@@ -755,7 +776,7 @@ async function handleSearch() {
   renderSearchResults(movies, tvShows, games);
 }
 
-/** Render search results respecting the active searchTypeFilter. Called after fetch and on pill change. */
+/** Render search results respecting the active media-type pills. Called after fetch and on pill change. */
 function renderSearchResults(movies, tvShows, games = []) {
   // Clear previous results but keep the panel visible
   hide(noSearchResults);
@@ -766,9 +787,9 @@ function renderSearchResults(movies, tvShows, games = []) {
   tvResults.innerHTML     = '';
   gamesResults.innerHTML  = '';
 
-  const showMovies = searchTypeFilter === 'all' || searchTypeFilter === 'movie';
-  const showTV     = searchTypeFilter === 'all' || searchTypeFilter === 'tv';
-  const showGames  = searchTypeFilter === 'all' || searchTypeFilter === 'game';
+  const showMovies = matchesActiveTypes('movie');
+  const showTV     = matchesActiveTypes('tv');
+  const showGames  = matchesActiveTypes('game');
 
   if (movies.length && showMovies) {
     movies.forEach(m => moviesResults.appendChild(buildResultCard(m)));
@@ -2401,13 +2422,18 @@ function buildGameDetailContent(d) {
 
 searchBtn.addEventListener('click', handleSearch);
 
+// Typing filters the current list live; Enter (or the Search button) runs the add-search.
+searchInput.addEventListener('input', refreshListViews);
+
 searchInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') handleSearch();
 });
 
 closeSearchBtn.addEventListener('click', () => {
   clearSearchUI();
+  lastSearchResults = null;
   searchInput.value = '';
+  refreshListViews();
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -2476,7 +2502,6 @@ refreshBtn.addEventListener('click', async () => {
 
 const viewToggleBtns   = document.querySelectorAll('.view-toggle [data-view]');
 const watchlistSection = document.querySelector('.watchlist-section');
-const searchBar        = document.querySelector('.search-bar');
 
 function switchView(view) {
   viewToggleBtns.forEach(b => b.classList.toggle('active', b.dataset.view === view));
@@ -2484,7 +2509,6 @@ function switchView(view) {
   const isRecs     = view === 'recommendations';
 
   watchlistSection.classList.toggle('hidden', isCalendar || isRecs);
-  searchBar.classList.toggle('hidden', isCalendar || isRecs);
 
   hide(searchSection);
   hide(calendarSection);
@@ -2520,12 +2544,22 @@ const calGridView     = $('cal-grid');
 const calListView     = $('cal-list-view');
 const calTbaWrap      = $('cal-tba-wrap');
 const calTbaRow       = $('cal-tba-row');
-const calTypeFilter   = $('cal-type-filter');
 
 let calendarData   = [];          // raw items from /calendar/get
 let calendarLoaded = false;       // has the endpoint been fetched this session?
-let calendarView   = 'month';     // 'month' | 'list'
-let calendarFilter = 'all';       // 'all' | 'movie-tv' | 'movie' | 'tv' | 'game'
+
+// Default calendar layout: List on small screens, Month on desktop
+const CAL_LIST_MQ = window.matchMedia('(max-width: 768px)');
+function defaultCalendarView() { return CAL_LIST_MQ.matches ? 'list' : 'month'; }
+
+/** Reflect the current calendarView on the Month/List toggle buttons. */
+function syncCalViewPills() {
+  document.querySelectorAll('.cal-view-toggle [data-cal-view]').forEach(b => {
+    b.classList.toggle('active', b.dataset.calView === calendarView);
+  });
+}
+
+let calendarView   = defaultCalendarView();  // 'month' | 'list'
 let calMonthCursor = startOfMonth(new Date());
 
 function startOfMonth(d) {
@@ -2633,9 +2667,12 @@ function relativeDayLabel(date) {
 }
 
 function applyCalendarFilter(items) {
-  if (calendarFilter === 'movie-tv') return items.filter(i => i.media_type !== 'game');
-  if (calendarFilter !== 'all')      return items.filter(i => i.media_type === calendarFilter);
-  return items;
+  const q = currentQuery();
+  return items.filter(i => {
+    if (!matchesActiveTypes(i.media_type)) return false;
+    if (q && !String(i.title || '').toLowerCase().includes(q)) return false;
+    return true;
+  });
 }
 
 async function loadCalendar() {
@@ -2686,6 +2723,7 @@ function renderCalendar() {
 
   calendarCount.textContent = items.length;
   calMonthNav.classList.toggle('hidden', calendarView !== 'month');
+  syncCalViewPills();
 
   if (calendarView === 'month') {
     hide(calListView);
@@ -2904,15 +2942,10 @@ function buildTbaCard(item) {
 }
 
 // Calendar toolbar wiring
-calTypeFilter.addEventListener('change', () => {
-  calendarFilter = calTypeFilter.value;
-  renderCalendar();
-});
-
 document.querySelectorAll('.cal-view-toggle [data-cal-view]').forEach(btn => {
   btn.addEventListener('click', () => {
     calendarView = btn.dataset.calView;
-    document.querySelectorAll('.cal-view-toggle [data-cal-view]').forEach(b => b.classList.toggle('active', b === btn));
+    syncCalViewPills();
     renderCalendar();
   });
 });
@@ -2944,12 +2977,10 @@ const recommendationsLoading = $('recommendations-loading');
 const recommendationsEmpty   = $('recommendations-empty');
 const recommendationsCount   = $('recommendations-count');
 const recommendationsGrid    = $('recommendations-grid');
-const recTypeFilter          = $('rec-type-filter');
 const recSortSelect          = $('rec-sort-select');
 
 let recsData   = [];          // raw items from /recommendations/get
 let recsLoaded = false;       // has the endpoint been fetched this session?
-let recFilter  = 'all';       // 'all' | 'movie-tv' | 'movie' | 'tv' | 'game'
 let recSort    = 'score';     // 'score' | 'rating' | 'popularity' | 'release-desc' | 'release-asc'
 
 /** Game vote_average comes on a 0-100 scale (IGDB); movies/TV are 0-10 (TMDB). */
@@ -2960,9 +2991,12 @@ function recVote(item) {
 }
 
 function applyRecommendationsFilter(items) {
-  if (recFilter === 'movie-tv') return items.filter(i => i.media_type !== 'game');
-  if (recFilter !== 'all')      return items.filter(i => i.media_type === recFilter);
-  return items;
+  const q = currentQuery();
+  return items.filter(i => {
+    if (!matchesActiveTypes(i.media_type)) return false;
+    if (q && !String(i.title || '').toLowerCase().includes(q)) return false;
+    return true;
+  });
 }
 
 /** Default sort is the recommendation score; other options break ties on it. */
@@ -3138,11 +3172,6 @@ function buildRecommendationCard(item) {
 }
 
 // Recommendations toolbar wiring
-recTypeFilter.addEventListener('change', () => {
-  recFilter = recTypeFilter.value;
-  renderRecommendations();
-});
-
 recSortSelect.addEventListener('change', () => {
   recSort = recSortSelect.value;
   renderRecommendations();

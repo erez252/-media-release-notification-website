@@ -290,7 +290,8 @@ input {
   padding: 0.75rem 1.25rem;
   display: flex;
   align-items: center;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
 }
 
 .brand {
@@ -307,8 +308,10 @@ input {
   color: var(--text-primary);
 }
 
+/* Global search / filter bar — always-visible second row of the top bar */
 .search-bar {
-  flex: 1;
+  order: 10;
+  flex: 1 1 100%;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -553,17 +556,6 @@ input {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-}
-
-.filter-wrap {
-  position: relative;
-  flex: 1;
-  min-width: 160px;
-}
-
-.filter-text {
-  padding-left: 2rem;
-  font-size: 0.85rem;
 }
 
 .filter-select {
@@ -856,23 +848,18 @@ input {
 /* ── Mobile (≤ 480px) ── */
 @media (max-width: 480px) {
   .top-bar-inner {
-    flex-wrap: wrap;
     gap: 8px;
     padding: 0.6rem 0.9rem;
   }
 
   .search-bar {
-    order: 3;
-    flex-basis: 100%;
-    width: 100%;
-    min-width: 0;
     flex-wrap: wrap;
   }
 
   .search-type-pills {
-    order: 2;
     width: 100%;
     justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .search-input-wrap {
@@ -910,7 +897,6 @@ input {
     flex-direction: column;
   }
 
-  .filter-wrap,
   .filter-select {
     width: 100%;
   }
@@ -1970,12 +1956,37 @@ input {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   View toggle (Watchlist / Calendar)
+   View toggle (Watchlist / Calendar / Recommendations)
+   Rendered as a segmented tab control so it never reads as a
+   filter chip group.
 ───────────────────────────────────────────────────────────── */
 .view-toggle {
-  display: flex;
-  gap: 4px;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(255,255,255,0.05);
   flex-shrink: 0;
+}
+
+.view-toggle .pill {
+  border: none;
+  background: transparent;
+  border-radius: calc(var(--radius-md) - 3px);
+  color: var(--text-secondary);
+  padding: 0.35rem 0.85rem;
+}
+
+.view-toggle .pill:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-primary);
+}
+
+.view-toggle .pill.active {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
 }
 
 /* Keep logout pinned to the right even when the search bar is hidden */
@@ -2379,7 +2390,8 @@ button.cal-chip:hover {
   .cal-tba-card { max-width: 100%; }
 }
 
-@media (max-width: 380px) {
+/* Tighter tabs so the segmented control fits next to the brand on phones */
+@media (max-width: 560px) {
   .view-toggle .pill { padding: 0.28rem 0.5rem; font-size: 0.72rem; }
 }
 

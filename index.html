@@ -56,13 +56,13 @@
           <button class="pill" data-view="recommendations">Recommendations</button>
         </div>
 
-        <!-- TMDB Search -->
+        <!-- Global search / filter bar -->
         <div class="search-bar" role="search">
-          <div class="search-type-pills" role="group" aria-label="Search type">
-            <button class="pill active" data-type="all">All</button>
-            <button class="pill" data-type="movie">Movies</button>
-            <button class="pill" data-type="tv">TV</button>
-            <button class="pill" data-type="game">Games</button>
+          <div class="search-type-pills" role="group" aria-label="Filter by media type">
+            <button class="pill active" data-type="all" aria-pressed="true">All</button>
+            <button class="pill" data-type="movie" aria-pressed="false">Movies</button>
+            <button class="pill" data-type="tv" aria-pressed="false">TV</button>
+            <button class="pill" data-type="game" aria-pressed="false">Games</button>
           </div>
           <div class="search-input-wrap">
             <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -72,12 +72,12 @@
               type="text"
               id="search-input"
               class="text-input search-text"
-              placeholder="Search movies & TV shows…"
-              aria-label="Search TMDB"
+              placeholder="Search or filter…"
+              aria-label="Search or filter"
               autocomplete="off"
             />
           </div>
-          <button id="search-btn" class="btn btn-secondary">
+          <button id="search-btn" class="btn btn-secondary" title="Search to add new titles">
             <span class="btn-text">Search</span>
             <span class="btn-spinner spinner hidden" aria-hidden="true"></span>
           </button>
@@ -163,27 +163,6 @@
             </button>
           </div>
           <div class="watchlist-controls">
-            <!-- Text filter -->
-            <div class="filter-wrap">
-              <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-              <input
-                type="text"
-                id="filter-input"
-                class="text-input filter-text"
-                placeholder="Filter by title…"
-                aria-label="Filter watchlist by title"
-              />
-            </div>
-            <!-- Type filter -->
-            <select id="type-filter" class="filter-select" aria-label="Filter by type">
-              <option value="all">All Types</option>
-              <option value="movie-tv">Movies & TV</option>
-              <option value="movie">Movies</option>
-              <option value="tv">TV Shows</option>
-              <option value="game">Games</option>
-            </select>
             <!-- Genre filter -->
             <select id="genre-filter" class="filter-select" aria-label="Filter by genre">
               <option value="all">All Genres</option>
@@ -244,14 +223,6 @@
               <button id="cal-next" class="btn btn-secondary btn-sm cal-nav-btn" aria-label="Next month">&rsaquo;</button>
               <button id="cal-today" class="btn btn-secondary btn-sm">Today</button>
             </div>
-
-            <select id="cal-type-filter" class="filter-select" aria-label="Filter calendar by type">
-              <option value="all">All Types</option>
-              <option value="movie-tv">Movies &amp; TV</option>
-              <option value="movie">Movies</option>
-              <option value="tv">TV Shows</option>
-              <option value="game">Games</option>
-            </select>
           </div>
         </div>
 
@@ -289,14 +260,6 @@
             </h2>
 
             <div class="recommendations-controls">
-              <select id="rec-type-filter" class="filter-select" aria-label="Filter recommendations by type">
-                <option value="all">All Types</option>
-                <option value="movie-tv">Movies &amp; TV</option>
-                <option value="movie">Movies</option>
-                <option value="tv">TV Shows</option>
-                <option value="game">Games</option>
-              </select>
-
               <select id="rec-sort-select" class="filter-select" aria-label="Sort recommendations">
                 <option value="score">Best Match</option>
                 <option value="rating">Rating &darr;</option>
