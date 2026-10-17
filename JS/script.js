@@ -1963,6 +1963,14 @@ function buildGameDetailContent(d) {
     try { return new Date(`${str}T00:00:00`).toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' }); }
     catch { return str; }
   };
+  const fmtDuration = sec => {
+    if (!sec || sec <= 0) return null;
+    const totalMin = Math.round(sec / 60);
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    if (h && m) return `${h}h ${m}m`;
+    return h ? `${h}h` : `${m}m`;
+  };
 
   // ── Hero media band (IGDB backdrop → blurred cover → gradient) ──
   const band = document.createElement('div');
@@ -2056,6 +2064,20 @@ function buildGameDetailContent(d) {
     { label: 'Languages',    value: languages.length ? languages.join(', ') : null, cls: 'detail-quickfact--wide' },
   ]);
   if (facts) body.appendChild(facts);
+
+  // Time to Beat — durations (seconds) for each play style
+  if (d.time_to_beat) {
+    const ttb = buildQuickFacts([
+      { label: 'Normally',   value: fmtDuration(d.time_to_beat.normally) },
+      { label: 'Hastily',    value: fmtDuration(d.time_to_beat.hastily) },
+      { label: 'Completely', value: fmtDuration(d.time_to_beat.completely) },
+    ]);
+    if (ttb) {
+      const sec = detailSection('Time to Beat');
+      sec.appendChild(ttb);
+      body.appendChild(sec);
+    }
+  }
 
   // Franchise — linked entries
   if (d.franchise?.length) {
@@ -2850,7 +2872,7 @@ function renderTbaStrip(vagueItems) {
 
 function buildTbaCard(item) {
   const card = document.createElement('div');
-  card.className = `cal-tba-card cal-tba-card--${item.media_type}`;
+  card.className = `cal-tba-card cal-tba-card--${item.media_type} cal-tba-card--clickable`;
 
   card.appendChild(calPoster(item, 'cal-tba-poster'));
 
@@ -2877,6 +2899,7 @@ function buildTbaCard(item) {
   dateBadge.textContent = vagueDateLabel(item);
   card.appendChild(dateBadge);
 
+  card.addEventListener('click', () => openCalendarItem(item));
   return card;
 }
 

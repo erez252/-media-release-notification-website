@@ -2304,6 +2304,15 @@ button.cal-chip:hover {
 .cal-tba-card--tv    { border-left-color: #90ffb8; }
 .cal-tba-card--game  { border-left-color: #d4aaff; }
 
+.cal-tba-card--clickable {
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+.cal-tba-card--clickable:hover {
+  background: var(--bg-card-hover);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
 .cal-tba-info {
   flex: 1;
   min-width: 0;
